@@ -1,3 +1,26 @@
 spring:
   application:
     name: tea-mall-backend
+
+  # 数据库配置（必须正确！）
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/cloud_tea_db?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+    username: root
+    password: 123456   # ← 这里改成你自己的MySQL密码！！！
+
+  # 热部署
+  devtools:
+    restart:
+      enabled: true
+
+mybatis-plus:
+  mapper-locations: classpath*:/com/xytgy/teamallbackend/mapper/**/*.xml
+  type-aliases-package: com.xytgy.teamallbackend.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl # 打印SQL日志
+
+
+server:
+  port: 8080
