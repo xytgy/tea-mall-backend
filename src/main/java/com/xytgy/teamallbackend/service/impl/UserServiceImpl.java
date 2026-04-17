@@ -2,6 +2,7 @@ package com.xytgy.teamallbackend.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.xytgy.teamallbackend.common.UserRole;
 import com.xytgy.teamallbackend.vo.LoginResponse;
 import com.xytgy.teamallbackend.entity.User;
 import com.xytgy.teamallbackend.service.UserService;
@@ -53,7 +54,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         Map<String, Object> claims = new HashMap<>();
         claims.put("id", user.getId());
         claims.put("username", user.getUsername());
-        String roleStr = Integer.valueOf(1).equals(user.getUser_role()) ? "admin" : "user";
+        String roleStr = UserRole.fromCode(user.getUser_role()).getRoleName();
         claims.put("role", roleStr);
         String token = jwtUtils.createToken(claims);
 
@@ -80,13 +81,11 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         user.setUserAccount(username);
         user.setUserPassword(PasswordUtil.encrypt(password));
         user.setPhone(phone != null ? phone : "");
-        user.setUser_role(0); // 默认普通用户
+        user.setUser_role(UserRole.USER.getCode()); // 默认普通用户
         user.setUserstatus(1); // 默认状态正常
         user.setIsDelete(0);
 
         this.save(user);
     }
 }
-
-
 
