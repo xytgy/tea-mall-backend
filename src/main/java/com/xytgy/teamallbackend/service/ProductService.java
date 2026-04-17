@@ -2,6 +2,9 @@ package com.xytgy.teamallbackend.service;
 
 import com.xytgy.teamallbackend.entity.Product;
 import com.baomidou.mybatisplus.extension.service.IService;
+import com.xytgy.teamallbackend.vo.ProductVO;
+
+import java.util.List;
 
 /**
 * @author xytgy
@@ -9,5 +12,5 @@ import com.baomidou.mybatisplus.extension.service.IService;
 * @createDate 2026-04-14 20:05:50
 */
 public interface ProductService extends IService<Product> {
-
+    List<ProductVO> listAvailableProducts();
 }
