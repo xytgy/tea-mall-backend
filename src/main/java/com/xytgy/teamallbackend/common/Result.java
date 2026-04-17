@@ -1,4 +1,4 @@
-package com.xushu.bookmanage.common;
+package com.xytgy.teamallbackend.common;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;

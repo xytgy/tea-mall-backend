@@ -1,4 +1,4 @@
-package com.xushu.bookmanage.config;
+package com.xytgy.teamallbackend.config;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Configuration;
@@ -14,7 +14,7 @@ public class WebConfig implements WebMvcConfigurer {
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(jwtInterceptor)
-                .addPathPatterns("/api/**")
-                .excludePathPatterns("/api/auth/login");
+                .addPathPatterns("/**")
+                .excludePathPatterns("/auth/login", "/auth/register");
     }
 }

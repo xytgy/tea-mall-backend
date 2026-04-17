@@ -7,7 +7,7 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://localhost:3306/cloud_tea_db?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
     username: root
-    password: 123456   # ← 这里改成你自己的MySQL密码！！！
+    password: 123456   
 
   # 热部署
   devtools:
@@ -24,3 +24,8 @@ mybatis-plus:
 
 server:
   port: 8080
+
+jwt:
+  # 至少 32 字符，生产环境请使用更强随机密钥并通过环境变量注入
+  secret: tea-mall-backend-jwt-secret-key-2026
+  expiration-ms: 86400000

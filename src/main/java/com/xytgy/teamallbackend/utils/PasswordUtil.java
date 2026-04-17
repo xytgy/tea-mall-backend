@@ -1,4 +1,4 @@
-package com.xytgy.usercenter.utils;
+package com.xytgy.teamallbackend.utils;
 
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 

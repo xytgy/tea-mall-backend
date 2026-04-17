@@ -1,4 +1,4 @@
-package com.xushu.bookmanage.config;
+package com.xytgy.teamallbackend.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;

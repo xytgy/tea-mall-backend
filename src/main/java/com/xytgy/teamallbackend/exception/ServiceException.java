@@ -1,4 +1,4 @@
-package com.xushu.bookmanage.exception;
+package com.xytgy.teamallbackend.exception;
 
 public class ServiceException extends RuntimeException {
     private final Integer code;

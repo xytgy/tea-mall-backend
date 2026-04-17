@@ -1,4 +1,4 @@
-package com.xushu.bookmanage.config;
+package com.xytgy.teamallbackend.config;
 
 import com.baomidou.mybatisplus.core.handlers.MetaObjectHandler;
 import org.apache.ibatis.reflection.MetaObject;
