@@ -6,7 +6,7 @@
 
     <resultMap id="BaseResultMap" type="com.xytgy.teamallbackend.entity.User">
             <id property="id" column="id" />
-            <result property="username" column="username" />
+            <result property="userAccount" column="useraccount" />
             <result property="password" column="password" />
             <result property="phone" column="phone" />
             <result property="email" column="email" />
@@ -15,13 +15,13 @@
             <result property="nickname" column="nickname" />
             <result property="avatar" column="avatar" />
             <result property="gender" column="gender" />
-            <result property="is_deleted" column="is_deleted" />
-            <result property="create_time" column="create_time" />
-            <result property="update_time" column="update_time" />
+            <result property="isDeleted" column="is_deleted" />
+            <result property="createTime" column="create_time" />
+            <result property="updateTime" column="update_time" />
     </resultMap>
 
     <sql id="Base_Column_List">
-        id,username,password,phone,email,role,
+        id,useraccount,password,phone,email,role,
         status,nickname,avatar,gender,is_deleted,
         create_time,update_time
     </sql>

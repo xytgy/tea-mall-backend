@@ -11,6 +11,7 @@ import com.xytgy.teamallbackend.utils.JwtUtils;
 import com.xytgy.teamallbackend.utils.PasswordUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -28,21 +29,24 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     private JwtUtils jwtUtils;
 
     @Override
-    public LoginResponse login(String username, String password) {
+    public LoginResponse login(String userAccount, String password) {
+        if (!StringUtils.hasText(userAccount) || !StringUtils.hasText(password)) {
+            throw new RuntimeException("账号和密码不能为空");
+        }
         QueryWrapper<User> queryWrapper = new QueryWrapper<>();
-        queryWrapper.eq("username", username);
+        queryWrapper.eq("useraccount", userAccount);
         User user = this.getOne(queryWrapper);
 
         if (user == null) {
             throw new RuntimeException("账号或密码错误");
         }
 
-        String dbPassword = user.getUserPassword();
+        String dbPassword = user.getPassword();
         boolean passwordMatched = PasswordUtil.match(password, dbPassword);
         // 兼容历史明文密码数据，登录成功后自动升级为加密存储
         if (!passwordMatched && password.equals(dbPassword)) {
             passwordMatched = true;
-            user.setUserPassword(PasswordUtil.encrypt(password));
+            user.setPassword(PasswordUtil.encrypt(password));
             this.updateById(user);
         }
 
@@ -53,8 +57,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         // 生成 JWT Token
         Map<String, Object> claims = new HashMap<>();
         claims.put("id", user.getId());
-        claims.put("username", user.getUsername());
-        String roleStr = UserRole.fromCode(user.getUser_role()).getRoleName();
+        claims.put("userAccount", user.getUserAccount());
+        String roleStr = UserRole.fromCode(user.getRole()).getRoleName();
         claims.put("role", roleStr);
         String token = jwtUtils.createToken(claims);
 
@@ -62,30 +66,31 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         return LoginResponse.builder()
                 .token(token)
                 .userInfo(LoginResponse.UserInfo.builder()
-                        .username(user.getUsername())
+                        .userAccount(user.getUserAccount())
                         .role(roleStr)
                         .build())
                 .build();
     }
 
     @Override
-    public void register(String username, String password, String phone) {
+    public void register(String userAccount, String password, String phone) {
+        if (!StringUtils.hasText(userAccount) || !StringUtils.hasText(password)) {
+            throw new RuntimeException("账号和密码不能为空");
+        }
         QueryWrapper<User> queryWrapper = new QueryWrapper<>();
-        queryWrapper.eq("username", username);
+        queryWrapper.eq("useraccount", userAccount);
         if (this.count(queryWrapper) > 0) {
-            throw new RuntimeException("该用户名已被注册");
+            throw new RuntimeException("该账号已被注册");
         }
 
         User user = new User();
-        user.setUsername(username);
-        user.setUserAccount(username);
-        user.setUserPassword(PasswordUtil.encrypt(password));
+        user.setUserAccount(userAccount);
+        user.setPassword(PasswordUtil.encrypt(password));
         user.setPhone(phone != null ? phone : "");
-        user.setUser_role(UserRole.USER.getCode()); // 默认普通用户
-        user.setUserstatus(1); // 默认状态正常
-        user.setIsDelete(0);
+        user.setRole(UserRole.USER.getCode()); // 默认普通用户
+        user.setStatus(1); // 默认状态正常
+        user.setIsDeleted(0);
 
         this.save(user);
     }
 }
-

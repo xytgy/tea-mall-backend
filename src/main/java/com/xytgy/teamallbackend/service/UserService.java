@@ -11,6 +11,6 @@ import com.xytgy.teamallbackend.vo.LoginResponse;
 * @createDate 2026-04-15 07:59:22
 */
 public interface UserService extends IService<User> {
-    LoginResponse login(String username, String password);
-    void register(String username, String password, String phone);
+    LoginResponse login(String userAccount, String password);
+    void register(String userAccount, String password, String phone);
 }

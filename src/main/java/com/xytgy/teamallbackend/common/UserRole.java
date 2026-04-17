@@ -2,8 +2,8 @@ package com.xytgy.teamallbackend.common;
 
 public enum UserRole {
     USER(0, "user"),
-    ADMIN(1, "admin"),
-    MERCHANT(2, "merchant");
+    MERCHANT(1, "merchant"),
+    ADMIN(2, "admin");
 
     private final int code;
     private final String roleName;
