@@ -28,7 +28,7 @@ public class AuthController {
     @PostMapping("/register")
     public Result<Void> register(@RequestBody RegisterRequest request) {
         try {
-            userService.register(request.getUserAccount(), request.getPassword(), request.getPhone());
+            userService.register(request.getUserAccount(), request.getPassword(), request.getConfirmPassword(), request.getPhone());
             return Result.success("注册成功", null);
         } catch (Exception e) {
             return Result.error(409, e.getMessage());

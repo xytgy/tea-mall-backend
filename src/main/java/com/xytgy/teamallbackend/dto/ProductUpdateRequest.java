@@ -1,20 +1,17 @@
-package com.xytgy.teamallbackend.vo;
+package com.xytgy.teamallbackend.dto;
 
-import lombok.Builder;
 import lombok.Data;
 
 import java.math.BigDecimal;
 
 @Data
-@Builder
-public class ProductVO {
+public class ProductUpdateRequest {
     private Long id;
     private String name;
     private String category;
+    private String imageUrl;
     private String description;
     private BigDecimal price;
     private Integer stock;
-    private String imageUrl;
     private Integer status;
-    private Integer sales;
 }

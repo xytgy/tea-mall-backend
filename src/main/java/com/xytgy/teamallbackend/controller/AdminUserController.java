@@ -3,29 +3,47 @@ package com.xytgy.teamallbackend.controller;
 import com.xytgy.teamallbackend.common.Result;
 import com.xytgy.teamallbackend.common.UserContext;
 import com.xytgy.teamallbackend.dto.AdminUserAddRequest;
+import com.xytgy.teamallbackend.dto.UserStatusRequest;
 import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.service.UserService;
 import com.xytgy.teamallbackend.vo.IdVO;
+import com.xytgy.teamallbackend.vo.UserVO;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/admin/user")
-public class    AdminUserController {
+@RequestMapping("/api/user/admin")
+public class AdminUserController {
 
     @Autowired
     private UserService userService;
 
     @PostMapping("/add")
-    public Result<IdVO> add(@RequestBody AdminUserAddRequest request) {
+    public Result<Void> add(@RequestBody AdminUserAddRequest request) {
         requireRole("admin");
-        Long id = userService.addUserByAdmin(request);
-        return Result.success("新增用户成功", new IdVO(id));
+        userService.addUserByAdmin(request);
+        return Result.success(null);
+    }
+
+    @GetMapping("/list")
+    public Result<List<UserVO>> list() {
+        requireRole("admin");
+        return Result.success(userService.listUsersByAdmin());
+    }
+
+    @PutMapping("/status")
+    public Result<Void> updateStatus(@RequestBody UserStatusRequest request) {
+        requireRole("admin");
+        userService.updateUserStatusByAdmin(request.getId(), request.getStatus());
+        return Result.success(null);
     }
 
     private void requireRole(String expectRole) {

@@ -2,16 +2,18 @@ package com.xytgy.teamallbackend.service.impl;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.xytgy.teamallbackend.dto.OrderCreateRequest;
+import com.xytgy.teamallbackend.dto.OrderPayRequest;
 import com.xytgy.teamallbackend.entity.OrderItem;
 import com.xytgy.teamallbackend.entity.Orders;
 import com.xytgy.teamallbackend.entity.Product;
 import com.xytgy.teamallbackend.exception.ServiceException;
+import com.xytgy.teamallbackend.mapper.OrdersMapper;
 import com.xytgy.teamallbackend.service.CartService;
 import com.xytgy.teamallbackend.service.OrderItemService;
 import com.xytgy.teamallbackend.service.OrdersService;
-import com.xytgy.teamallbackend.mapper.OrdersMapper;
 import com.xytgy.teamallbackend.service.ProductService;
 import com.xytgy.teamallbackend.vo.CreateOrderVO;
+import com.xytgy.teamallbackend.vo.MerchantOrderVO;
 import com.xytgy.teamallbackend.vo.OrderItemVO;
 import com.xytgy.teamallbackend.vo.OrderVO;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -179,6 +181,102 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         }
 
         order.setStatus(4);
+        updateById(order);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void payOrder(Long userId, OrderPayRequest request) {
+        if (request == null || request.getOrderId() == null) {
+            throw new ServiceException(400, "参数错误");
+        }
+        Orders order = getUserOrder(userId, request.getOrderId());
+        if (!Objects.equals(order.getStatus(), 0)) {
+            throw new ServiceException(400, "订单状态不正确，无法支付");
+        }
+        
+        // 模拟支付成功
+        order.setStatus(1);
+        // 如果有支付方式字段也可以在这里记录
+        updateById(order);
+    }
+
+    @Override
+    public List<MerchantOrderVO> listMerchantOrders(Long merchantId) {
+        // 1. 获取该商家的所有商品
+        List<Product> products = productService.lambdaQuery()
+                .eq(Product::getMerchantId, merchantId)
+                .list();
+        if (products.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<Long> productIds = products.stream().map(Product::getId).collect(Collectors.toList());
+
+        // 2. 获取包含这些商品的订单项
+        List<OrderItem> orderItems = orderItemService.lambdaQuery()
+                .in(OrderItem::getProductId, productIds)
+                .list();
+        if (orderItems.isEmpty()) {
+            return Collections.emptyList();
+        }
+        
+        // 3. 提取唯一的订单ID
+        List<Long> orderIds = orderItems.stream()
+                .map(OrderItem::getOrderId)
+                .distinct()
+                .collect(Collectors.toList());
+
+        // 4. 查询订单并映射为VO
+        List<Orders> orders = lambdaQuery()
+                .in(Orders::getId, orderIds)
+                .orderByDesc(Orders::getCreateTime)
+                .list();
+
+        return orders.stream().map(order -> MerchantOrderVO.builder()
+                .id(order.getId())
+                .orderNo(order.getOrderNo())
+                .receiverName(order.getReceiverName())
+                .totalAmount(order.getTotalAmount())
+                .createTime(order.getCreateTime() == null ? null : order.getCreateTime().format(TIME_FORMATTER))
+                .status(order.getStatus())
+                .build()).collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void deliverOrder(Long merchantId, Long orderId) {
+        if (orderId == null) {
+            throw new ServiceException(400, "订单ID不能为空");
+        }
+        
+        Orders order = getById(orderId);
+        if (order == null) {
+            throw new ServiceException(404, "订单不存在");
+        }
+        if (!Objects.equals(order.getStatus(), 1)) {
+            throw new ServiceException(400, "订单当前状态不支持发货");
+        }
+
+        // 校验该订单是否包含该商家的商品
+        List<OrderItem> items = orderItemService.lambdaQuery()
+                .eq(OrderItem::getOrderId, orderId)
+                .list();
+        if (items.isEmpty()) {
+            throw new ServiceException(404, "订单数据异常");
+        }
+        
+        List<Long> productIds = items.stream().map(OrderItem::getProductId).collect(Collectors.toList());
+        long count = productService.lambdaQuery()
+                .in(Product::getId, productIds)
+                .eq(Product::getMerchantId, merchantId)
+                .count();
+                
+        if (count == 0) {
+            throw new ServiceException(403, "无权操作该订单");
+        }
+
+        // 更新为已发货状态
+        order.setStatus(2);
         updateById(order);
     }
 

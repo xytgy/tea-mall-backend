@@ -116,13 +116,10 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart>
 
     @Override
     public void deleteCart(Long userId, Long cartId) {
-        boolean removed = lambdaUpdate()
+        lambdaUpdate()
                 .eq(Cart::getId, cartId)
                 .eq(Cart::getUserId, userId)
                 .remove();
-        if (!removed) {
-            throw new ServiceException(404, "购物车项不存在");
-        }
     }
 
     @Override

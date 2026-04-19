@@ -51,9 +51,19 @@ public class Product {
     private Long merchantId;
 
     /**
-     * 状态 0下架 1上架 2审核中
+     * 状态 0下架 1上架
      */
     private Integer status;
+
+    /**
+     * 审核状态 0待审核 1已通过 2已驳回
+     */
+    private Integer auditStatus;
+
+    /**
+     * 销量
+     */
+    private Integer sales;
 
     /**
      * 分类

@@ -4,19 +4,23 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.xytgy.teamallbackend.common.UserRole;
 import com.xytgy.teamallbackend.dto.AdminUserAddRequest;
-import com.xytgy.teamallbackend.exception.ServiceException;
-import com.xytgy.teamallbackend.vo.LoginResponse;
 import com.xytgy.teamallbackend.entity.User;
-import com.xytgy.teamallbackend.service.UserService;
+import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.mapper.UserMapper;
+import com.xytgy.teamallbackend.service.UserService;
 import com.xytgy.teamallbackend.utils.JwtUtils;
 import com.xytgy.teamallbackend.utils.PasswordUtil;
+import com.xytgy.teamallbackend.vo.LoginResponse;
+import com.xytgy.teamallbackend.vo.UserVO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
 * @author xytgy
@@ -60,24 +64,27 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         Map<String, Object> claims = new HashMap<>();
         claims.put("id", user.getId());
         claims.put("userAccount", user.getUserAccount());
-        String roleStr = UserRole.fromCode(user.getRole()).getRoleName();
-        claims.put("role", roleStr);
+        Integer frontendRole = toFrontendRole(user.getRole());
+        claims.put("role", frontendRole);
         String token = jwtUtils.createToken(claims);
 
         // 封装返回数据
         return LoginResponse.builder()
                 .token(token)
                 .userInfo(LoginResponse.UserInfo.builder()
-                        .userAccount(user.getUserAccount())
-                        .role(roleStr)
+                        .username(user.getUserAccount())
+                        .role(frontendRole)
                         .build())
                 .build();
     }
 
     @Override
-    public void register(String userAccount, String password, String phone) {
-        if (!StringUtils.hasText(userAccount) || !StringUtils.hasText(password)) {
+    public void register(String userAccount, String password, String confirmPassword, String phone) {
+        if (!StringUtils.hasText(userAccount) || !StringUtils.hasText(password) || !StringUtils.hasText(confirmPassword)) {
             throw new RuntimeException("账号和密码不能为空");
+        }
+        if (!password.equals(confirmPassword)) {
+            throw new RuntimeException("两次输入的密码不一致");
         }
         QueryWrapper<User> queryWrapper = new QueryWrapper<>();
         queryWrapper.eq("useraccount", userAccount);
@@ -136,5 +143,52 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             case 2 -> 1;
             default -> 0;
         };
+    }
+
+    private Integer toFrontendRole(Integer dbRole) {
+        return switch (dbRole) {
+            case 2 -> 1; // DB Admin(2) -> Frontend Admin(1)
+            case 1 -> 2; // DB Merchant(1) -> Frontend Merchant(2)
+            default -> 0; // User(0)
+        };
+    }
+
+    @Override
+    public List<UserVO> listUsersByAdmin() {
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        return lambdaQuery()
+                .eq(User::getIsDeleted, 0)
+                .orderByDesc(User::getCreateTime)
+                .list()
+                .stream()
+                .map(user -> UserVO.builder()
+                        .id(user.getId())
+                        .username(user.getUserAccount())
+                        .nickname(user.getNickname())
+                        .avatar(user.getAvatar())
+                        .gender(user.getGender())
+                        .phone(user.getPhone())
+                        .email(user.getEmail())
+                        .status(user.getStatus())
+                        .role(toFrontendRole(user.getRole()))
+                        .createTime(user.getCreateTime() == null ? null : user.getCreateTime().format(formatter))
+                        .build())
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public void updateUserStatusByAdmin(Long id, Integer status) {
+        if (id == null || status == null) {
+            throw new ServiceException(400, "参数不完整");
+        }
+        if (status != 0 && status != 1) {
+            throw new ServiceException(400, "状态值非法");
+        }
+        User user = getById(id);
+        if (user == null || user.getIsDeleted() == 1) {
+            throw new ServiceException(404, "用户不存在");
+        }
+        user.setStatus(status);
+        updateById(user);
     }
 }

@@ -3,9 +3,11 @@ package com.xytgy.teamallbackend.controller;
 import com.xytgy.teamallbackend.common.Result;
 import com.xytgy.teamallbackend.common.UserContext;
 import com.xytgy.teamallbackend.dto.OrderCreateRequest;
+import com.xytgy.teamallbackend.dto.OrderPayRequest;
 import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.service.OrdersService;
 import com.xytgy.teamallbackend.vo.CreateOrderVO;
+import com.xytgy.teamallbackend.vo.MerchantOrderVO;
 import com.xytgy.teamallbackend.vo.OrderVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -19,6 +21,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/order")
@@ -50,6 +53,14 @@ public class OrderController {
     public Result<CreateOrderVO> create(@RequestBody OrderCreateRequest request) {
         Long userId = currentUserId();
         return Result.success(ordersService.createOrder(userId, request));
+    }
+
+    @PostMapping("/pay")
+    @Operation(summary = "支付订单 (模拟支付)")
+    public Result<Void> pay(@RequestBody OrderPayRequest request) {
+        Long userId = currentUserId();
+        ordersService.payOrder(userId, request);
+        return Result.success(null);
     }
 
     @GetMapping("/list")
@@ -103,11 +114,36 @@ public class OrderController {
         return Result.success(null);
     }
 
+    @GetMapping("/merchant/list")
+    @Operation(summary = "商家获取自己的订单列表")
+    public Result<List<MerchantOrderVO>> merchantList() {
+        Long merchantId = currentUserId();
+        requireRole("merchant");
+        return Result.success(ordersService.listMerchantOrders(merchantId));
+    }
+
+    @PostMapping("/merchant/deliver/{orderId}")
+    @Operation(summary = "商家对订单进行发货")
+    public Result<Void> deliver(@PathVariable Long orderId) {
+        Long merchantId = currentUserId();
+        requireRole("merchant");
+        ordersService.deliverOrder(merchantId, orderId);
+        return Result.success(null);
+    }
+
     private Long currentUserId() {
         Long userId = UserContext.getCurrentUserId();
         if (userId == null) {
             throw new ServiceException(401, "未登录");
         }
         return userId;
+    }
+
+    private void requireRole(String expectRole) {
+        Map<String, Object> user = UserContext.getUser();
+        String role = user == null ? null : String.valueOf(user.get("role"));
+        if (!expectRole.equals(role)) {
+            throw new ServiceException(403, "无权限访问");
+        }
     }
 }

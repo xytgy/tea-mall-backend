@@ -1,7 +1,14 @@
 package com.xytgy.teamallbackend.controller;
 
 import com.xytgy.teamallbackend.common.Result;
+import com.xytgy.teamallbackend.common.UserContext;
+import com.xytgy.teamallbackend.dto.ProductAddRequest;
+import com.xytgy.teamallbackend.dto.ProductAuditRequest;
+import com.xytgy.teamallbackend.dto.ProductStatusRequest;
+import com.xytgy.teamallbackend.dto.ProductUpdateRequest;
+import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.service.ProductService;
+import com.xytgy.teamallbackend.vo.AuditVO;
 import com.xytgy.teamallbackend.vo.ProductVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -11,11 +18,10 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/product")
@@ -38,5 +44,71 @@ public class ProductController {
     })
     public Result<List<ProductVO>> list() {
         return Result.success(productService.listAvailableProducts());
+    }
+
+    @GetMapping("/merchant/list")
+    @Operation(summary = "商家获取自己的商品列表")
+    public Result<List<ProductVO>> merchantList() {
+        Long merchantId = currentUserId();
+        requireRole("merchant");
+        return Result.success(productService.listMerchantProducts(merchantId));
+    }
+
+    @PostMapping("/add")
+    @Operation(summary = "商家发布新商品")
+    public Result<Void> add(@RequestBody ProductAddRequest request) {
+        Long merchantId = currentUserId();
+        requireRole("merchant");
+        productService.addProduct(merchantId, request);
+        return Result.success(null);
+    }
+
+    @PutMapping("/update")
+    @Operation(summary = "商家编辑商品")
+    public Result<Void> update(@RequestBody ProductUpdateRequest request) {
+        Long merchantId = currentUserId();
+        requireRole("merchant");
+        productService.updateProduct(merchantId, request);
+        return Result.success(null);
+    }
+
+    @PutMapping("/status")
+    @Operation(summary = "商家上架/下架商品")
+    public Result<Void> updateStatus(@RequestBody ProductStatusRequest request) {
+        Long merchantId = currentUserId();
+        requireRole("merchant");
+        productService.updateProductStatus(merchantId, request);
+        return Result.success(null);
+    }
+
+    @GetMapping("/audit/list")
+    @Operation(summary = "管理员获取待审核商品列表")
+    public Result<List<AuditVO>> auditList() {
+        requireRole("admin");
+        return Result.success(productService.listPendingAuditProducts());
+    }
+
+    @PutMapping("/audit")
+    @Operation(summary = "管理员审核商品")
+    public Result<Void> audit(@RequestBody ProductAuditRequest request) {
+        requireRole("admin");
+        productService.auditProduct(request);
+        return Result.success(null);
+    }
+
+    private Long currentUserId() {
+        Long userId = UserContext.getCurrentUserId();
+        if (userId == null) {
+            throw new ServiceException(401, "未登录");
+        }
+        return userId;
+    }
+
+    private void requireRole(String expectRole) {
+        Map<String, Object> user = UserContext.getUser();
+        String role = user == null ? null : String.valueOf(user.get("role"));
+        if (!expectRole.equals(role)) {
+            throw new ServiceException(403, "无权限访问");
+        }
     }
 }
