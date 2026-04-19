@@ -2,6 +2,8 @@ package com.xytgy.teamallbackend.config;
 
 
 import com.xytgy.teamallbackend.common.UserContext;
+import com.xytgy.teamallbackend.entity.User;
+import com.xytgy.teamallbackend.service.UserService;
 import com.xytgy.teamallbackend.utils.JwtUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
@@ -20,6 +22,8 @@ public class JwtInterceptor implements HandlerInterceptor {
     private JwtUtils jwtUtils;
     @Autowired
     private ObjectMapper objectMapper;
+    @Autowired
+    private UserService userService;
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
@@ -33,6 +37,15 @@ public class JwtInterceptor implements HandlerInterceptor {
             token = token.substring(7);
             try {
                 Map<String, Object> claims = jwtUtils.parseToken(token);
+                
+                // 实时查询数据库校验用户状态
+                Long userId = Long.valueOf(claims.get("id").toString());
+                User user = userService.getById(userId);
+                if (user == null || (user.getStatus() != null && user.getStatus() == 0)) {
+                    writeUnauthorized(response, "您的账号状态异常或已被封禁，请重新登录");
+                    return false;
+                }
+                
                 UserContext.setUser(claims);
                 return true;
             } catch (Exception e) {

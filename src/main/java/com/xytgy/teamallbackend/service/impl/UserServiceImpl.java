@@ -37,14 +37,18 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     @Override
     public LoginResponse login(String userAccount, String password) {
         if (!StringUtils.hasText(userAccount) || !StringUtils.hasText(password)) {
-            throw new RuntimeException("账号和密码不能为空");
+            throw new ServiceException(400, "账号和密码不能为空");
         }
         QueryWrapper<User> queryWrapper = new QueryWrapper<>();
         queryWrapper.eq("useraccount", userAccount);
         User user = this.getOne(queryWrapper);
 
         if (user == null) {
-            throw new RuntimeException("账号或密码错误");
+            throw new ServiceException(401, "账号或密码错误");
+        }
+
+        if (user.getStatus() != null && user.getStatus() == 0) {
+            throw new ServiceException(403, "账号已被禁用，请联系管理员");
         }
 
         String dbPassword = user.getPassword();
@@ -57,7 +61,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         }
 
         if (!passwordMatched) {
-            throw new RuntimeException("账号或密码错误");
+            throw new ServiceException(401, "账号或密码错误");
         }
 
         // 生成 JWT Token
@@ -81,15 +85,15 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     @Override
     public void register(String userAccount, String password, String confirmPassword, String phone) {
         if (!StringUtils.hasText(userAccount) || !StringUtils.hasText(password) || !StringUtils.hasText(confirmPassword)) {
-            throw new RuntimeException("账号和密码不能为空");
+            throw new ServiceException(400, "账号和密码不能为空");
         }
         if (!password.equals(confirmPassword)) {
-            throw new RuntimeException("两次输入的密码不一致");
+            throw new ServiceException(400, "两次输入的密码不一致");
         }
         QueryWrapper<User> queryWrapper = new QueryWrapper<>();
         queryWrapper.eq("useraccount", userAccount);
         if (this.count(queryWrapper) > 0) {
-            throw new RuntimeException("该账号已被注册");
+            throw new ServiceException(409, "该账号已被注册");
         }
 
         User user = new User();

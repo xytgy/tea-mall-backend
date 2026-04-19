@@ -69,7 +69,7 @@ public class CartController {
         return Result.success(cartService.listCart(userId));
     }
 
-    @PutMapping("/update")
+    @RequestMapping(value = "/update", method = {RequestMethod.PUT, RequestMethod.POST})
     @Operation(summary = "修改购物车商品数量")
     @ApiResponses({
             @ApiResponse(
@@ -94,7 +94,7 @@ public class CartController {
         return Result.success(null);
     }
 
-    @DeleteMapping("/delete")
+    @RequestMapping(value = "/delete", method = {RequestMethod.DELETE, RequestMethod.POST})
     @Operation(summary = "批量删除购物车项")
     @ApiResponses({
             @ApiResponse(

@@ -13,5 +13,6 @@ public class CartItemVO {
     private String productName;
     private BigDecimal productPrice;
     private Integer quantity;
+    private Integer stock;
     private String imageUrl;
 }

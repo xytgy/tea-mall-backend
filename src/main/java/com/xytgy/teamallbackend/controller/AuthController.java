@@ -5,6 +5,7 @@ import com.xytgy.teamallbackend.dto.LoginRequest;
 import com.xytgy.teamallbackend.dto.RegisterRequest;
 import com.xytgy.teamallbackend.vo.LoginResponse;
 import com.xytgy.teamallbackend.service.UserService;
+import com.xytgy.teamallbackend.exception.ServiceException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -20,6 +21,8 @@ public class AuthController {
         try {
             LoginResponse data = userService.login(request.getUserAccount(), request.getPassword());
             return Result.success("登录成功", data);
+        } catch (ServiceException e) {
+            return Result.error(e.getCode(), e.getMessage());
         } catch (Exception e) {
             return Result.error(401, e.getMessage());
         }
@@ -30,6 +33,8 @@ public class AuthController {
         try {
             userService.register(request.getUserAccount(), request.getPassword(), request.getConfirmPassword(), request.getPhone());
             return Result.success("注册成功", null);
+        } catch (ServiceException e) {
+            return Result.error(e.getCode(), e.getMessage());
         } catch (Exception e) {
             return Result.error(409, e.getMessage());
         }

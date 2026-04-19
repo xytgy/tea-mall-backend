@@ -141,6 +141,7 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart>
                     .productName("")
                     .productPrice(null)
                     .quantity(cart.getQuantity())
+                    .stock(0)
                     .imageUrl("")
                     .build();
         }
@@ -150,6 +151,7 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart>
                 .productName(product.getName())
                 .productPrice(product.getPrice())
                 .quantity(cart.getQuantity())
+                .stock(product.getStock())
                 .imageUrl(product.getImageUrl())
                 .build();
     }
