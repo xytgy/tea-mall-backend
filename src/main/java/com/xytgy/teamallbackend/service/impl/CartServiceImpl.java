@@ -41,8 +41,8 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart>
         }
 
         Cart existing = lambdaQuery()
-                .eq(Cart::getUser_id, userId)
-                .eq(Cart::getProduct_id, productId)
+                .eq(Cart::getUserId, userId)
+                .eq(Cart::getProductId, productId)
                 .one();
 
         int targetQty = quantity;
@@ -61,8 +61,8 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart>
         }
 
         Cart cart = new Cart();
-        cart.setUser_id(userId);
-        cart.setProduct_id(productId);
+        cart.setUserId(userId);
+        cart.setProductId(productId);
         cart.setQuantity(quantity);
         save(cart);
         return toCartItemVO(cart, product);
@@ -71,19 +71,19 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart>
     @Override
     public List<CartItemVO> listCart(Long userId) {
         List<Cart> cartList = lambdaQuery()
-                .eq(Cart::getUser_id, userId)
-                .orderByDesc(Cart::getCreate_time)
+                .eq(Cart::getUserId, userId)
+                .orderByDesc(Cart::getCreateTime)
                 .list();
         if (cartList.isEmpty()) {
             return Collections.emptyList();
         }
 
-        Set<Long> productIds = cartList.stream().map(Cart::getProduct_id).collect(Collectors.toSet());
+        Set<Long> productIds = cartList.stream().map(Cart::getProductId).collect(Collectors.toSet());
         Map<Long, Product> productMap = productService.listByIds(productIds).stream()
                 .collect(Collectors.toMap(Product::getId, p -> p));
 
         return cartList.stream()
-                .map(cart -> toCartItemVO(cart, productMap.get(cart.getProduct_id())))
+                .map(cart -> toCartItemVO(cart, productMap.get(cart.getProductId())))
                 .collect(Collectors.toList());
     }
 
@@ -95,13 +95,13 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart>
 
         Cart cart = lambdaQuery()
                 .eq(Cart::getId, cartId)
-                .eq(Cart::getUser_id, userId)
+                .eq(Cart::getUserId, userId)
                 .one();
         if (cart == null) {
             throw new ServiceException(404, "购物车项不存在");
         }
 
-        Product product = productService.getById(cart.getProduct_id());
+        Product product = productService.getById(cart.getProductId());
         if (product == null || !Objects.equals(product.getStatus(), 1)) {
             throw new ServiceException(404, "商品不存在或已下架");
         }
@@ -118,7 +118,7 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart>
     public void deleteCart(Long userId, Long cartId) {
         boolean removed = lambdaUpdate()
                 .eq(Cart::getId, cartId)
-                .eq(Cart::getUser_id, userId)
+                .eq(Cart::getUserId, userId)
                 .remove();
         if (!removed) {
             throw new ServiceException(404, "购物车项不存在");
@@ -131,8 +131,8 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart>
             return;
         }
         lambdaUpdate()
-                .eq(Cart::getUser_id, userId)
-                .in(Cart::getProduct_id, productIds)
+                .eq(Cart::getUserId, userId)
+                .in(Cart::getProductId, productIds)
                 .remove();
     }
 
@@ -140,7 +140,7 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart>
         if (product == null) {
             return CartItemVO.builder()
                     .id(cart.getId())
-                    .productId(cart.getProduct_id())
+                    .productId(cart.getProductId())
                     .productName("")
                     .productPrice(null)
                     .quantity(cart.getQuantity())
@@ -153,7 +153,7 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart>
                 .productName(product.getName())
                 .productPrice(product.getPrice())
                 .quantity(cart.getQuantity())
-                .imageUrl(product.getImage_url())
+                .imageUrl(product.getImageUrl())
                 .build();
     }
 }

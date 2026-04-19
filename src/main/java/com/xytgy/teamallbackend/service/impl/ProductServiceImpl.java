@@ -26,7 +26,7 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
         return lambdaQuery()
                 .eq(Product::getStatus, 1)
                 .gt(Product::getStock, 0)
-                .orderByDesc(Product::getUpdate_time)
+                .orderByDesc(Product::getUpdateTime)
                 .list()
                 .stream()
                 .map(this::toVO)
@@ -57,7 +57,7 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
         product.setPrice(request.getPrice());
         product.setStock(request.getStock());
         product.setStatus(request.getStatus());
-        product.setMerchant_id(merchantId);
+        product.setMerchantId(merchantId);
         // 数据库无 sales 字段时依赖表默认值；有字段时建议 default 0
         save(product);
         return product.getId();
@@ -69,7 +69,7 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
                 .name(product.getName())
                 .price(product.getPrice())
                 .stock(product.getStock())
-                .imageUrl(product.getImage_url())
+                .imageUrl(product.getImageUrl())
                 .build();
     }
 }

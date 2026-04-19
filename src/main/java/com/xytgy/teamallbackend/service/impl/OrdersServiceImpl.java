@@ -80,13 +80,13 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         }
 
         Orders order = new Orders();
-        order.setOrder_no(generateOrderNo(userId));
-        order.setUser_id(userId);
-        order.setTotal_amount(totalAmount);
+        order.setOrderNo(generateOrderNo(userId));
+        order.setUserId(userId);
+        order.setTotalAmount(totalAmount);
         order.setStatus(0);
-        order.setReceiver_name(request.getReceiverName());
-        order.setReceiver_phone(request.getReceiverPhone());
-        order.setReceiver_address(request.getReceiverAddress());
+        order.setReceiverName(request.getReceiverName());
+        order.setReceiverPhone(request.getReceiverPhone());
+        order.setReceiverAddress(request.getReceiverAddress());
         save(order);
 
         List<OrderItem> orderItems = new ArrayList<>();
@@ -98,25 +98,25 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
             productService.updateById(product);
 
             OrderItem item = new OrderItem();
-            item.setOrder_id(order.getId());
-            item.setProduct_id(product.getId());
-            item.setProduct_name(product.getName());
-            item.setProduct_price(product.getPrice());
+            item.setOrderId(order.getId());
+            item.setProductId(product.getId());
+            item.setProductName(product.getName());
+            item.setProductPrice(product.getPrice());
             item.setQuantity(qty);
-            item.setTotal_amount(product.getPrice().multiply(BigDecimal.valueOf(qty)));
+            item.setTotalAmount(product.getPrice().multiply(BigDecimal.valueOf(qty)));
             orderItems.add(item);
         }
         orderItemService.saveBatch(orderItems);
         cartService.removeByUserAndProductIds(userId, new ArrayList<>(productQtyMap.keySet()));
 
-        return new CreateOrderVO(order.getOrder_no(), order.getId());
+        return new CreateOrderVO(order.getOrderNo(), order.getId());
     }
 
     @Override
     public List<OrderVO> listOrders(Long userId) {
         List<Orders> orders = lambdaQuery()
-                .eq(Orders::getUser_id, userId)
-                .orderByDesc(Orders::getCreate_time)
+                .eq(Orders::getUserId, userId)
+                .orderByDesc(Orders::getCreateTime)
                 .list();
         if (orders.isEmpty()) {
             return Collections.emptyList();
@@ -124,25 +124,25 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
 
         List<Long> orderIds = orders.stream().map(Orders::getId).toList();
         Map<Long, List<OrderItem>> orderItemMap = orderItemService.lambdaQuery()
-                .in(OrderItem::getOrder_id, orderIds)
+                .in(OrderItem::getOrderId, orderIds)
                 .list()
                 .stream()
-                .collect(Collectors.groupingBy(OrderItem::getOrder_id));
+                .collect(Collectors.groupingBy(OrderItem::getOrderId));
 
         return orders.stream().map(order -> OrderVO.builder()
                 .id(order.getId())
-                .orderNo(order.getOrder_no())
-                .totalAmount(order.getTotal_amount())
+                .orderNo(order.getOrderNo())
+                .totalAmount(order.getTotalAmount())
                 .status(order.getStatus())
-                .receiverName(order.getReceiver_name())
-                .receiverPhone(order.getReceiver_phone())
-                .receiverAddress(order.getReceiver_address())
-                .createTime(order.getCreate_time() == null ? null : order.getCreate_time().format(TIME_FORMATTER))
+                .receiverName(order.getReceiverName())
+                .receiverPhone(order.getReceiverPhone())
+                .receiverAddress(order.getReceiverAddress())
+                .createTime(order.getCreateTime() == null ? null : order.getCreateTime().format(TIME_FORMATTER))
                 .items(orderItemMap.getOrDefault(order.getId(), Collections.emptyList())
                         .stream()
                         .map(item -> OrderItemVO.builder()
-                                .productName(item.getProduct_name())
-                                .productPrice(item.getProduct_price())
+                                .productName(item.getProductName())
+                                .productPrice(item.getProductPrice())
                                 .quantity(item.getQuantity())
                                 .build())
                         .toList())
@@ -168,10 +168,10 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         }
 
         List<OrderItem> items = orderItemService.lambdaQuery()
-                .eq(OrderItem::getOrder_id, order.getId())
+                .eq(OrderItem::getOrderId, order.getId())
                 .list();
         for (OrderItem item : items) {
-            Product product = productService.getById(item.getProduct_id());
+            Product product = productService.getById(item.getProductId());
             if (product != null) {
                 product.setStock(product.getStock() + item.getQuantity());
                 productService.updateById(product);
@@ -188,7 +188,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         }
         Orders order = lambdaQuery()
                 .eq(Orders::getId, orderId)
-                .eq(Orders::getUser_id, userId)
+                .eq(Orders::getUserId, userId)
                 .one();
         if (order == null) {
             throw new ServiceException(404, "订单不存在");
