@@ -2,10 +2,13 @@ package com.xytgy.teamallbackend.service.impl;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.xytgy.teamallbackend.entity.Product;
+import com.xytgy.teamallbackend.dto.MerchantGoodsAddRequest;
+import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.service.ProductService;
 import com.xytgy.teamallbackend.mapper.ProductMapper;
 import com.xytgy.teamallbackend.vo.ProductVO;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -28,6 +31,36 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
                 .stream()
                 .map(this::toVO)
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    public Long addMerchantGoods(Long merchantId, MerchantGoodsAddRequest request) {
+        if (request == null
+                || !StringUtils.hasText(request.getName())
+                || request.getPrice() == null
+                || request.getStock() == null
+                || request.getStatus() == null) {
+            throw new ServiceException(400, "参数不完整");
+        }
+        if (request.getPrice().signum() < 0) {
+            throw new ServiceException(400, "价格不能小于0");
+        }
+        if (request.getStock() < 0) {
+            throw new ServiceException(400, "库存不能小于0");
+        }
+        if (request.getStatus() != 0 && request.getStatus() != 1) {
+            throw new ServiceException(400, "status 仅支持 0 或 1");
+        }
+
+        Product product = new Product();
+        product.setName(request.getName().trim());
+        product.setPrice(request.getPrice());
+        product.setStock(request.getStock());
+        product.setStatus(request.getStatus());
+        product.setMerchant_id(merchantId);
+        // 数据库无 sales 字段时依赖表默认值；有字段时建议 default 0
+        save(product);
+        return product.getId();
     }
 
     private ProductVO toVO(Product product) {

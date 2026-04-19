@@ -3,6 +3,8 @@ package com.xytgy.teamallbackend.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.xytgy.teamallbackend.common.UserRole;
+import com.xytgy.teamallbackend.dto.AdminUserAddRequest;
+import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.vo.LoginResponse;
 import com.xytgy.teamallbackend.entity.User;
 import com.xytgy.teamallbackend.service.UserService;
@@ -92,5 +94,47 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         user.setIsDeleted(0);
 
         this.save(user);
+    }
+
+    @Override
+    public Long addUserByAdmin(AdminUserAddRequest request) {
+        if (request == null || !StringUtils.hasText(request.getUsername())
+                || request.getRole() == null || request.getStatus() == null) {
+            throw new ServiceException(400, "参数不完整");
+        }
+        if (request.getStatus() != 0 && request.getStatus() != 1) {
+            throw new ServiceException(400, "status 仅支持 0 或 1");
+        }
+        if (request.getRole() < 0 || request.getRole() > 2) {
+            throw new ServiceException(400, "role 仅支持 0/1/2");
+        }
+
+        String username = request.getUsername().trim();
+        QueryWrapper<User> existsQuery = new QueryWrapper<>();
+        existsQuery.eq("useraccount", username);
+        if (this.count(existsQuery) > 0) {
+            throw new ServiceException(400, "用户名已存在");
+        }
+
+        User user = new User();
+        user.setUserAccount(username);
+        user.setPassword(PasswordUtil.encrypt("123456"));
+        user.setRole(toDbRole(request.getRole()));
+        user.setStatus(request.getStatus());
+        user.setIsDeleted(0);
+        this.save(user);
+        return user.getId();
+    }
+
+    /**
+     * 前端传参角色约定：0用户 1管理员 2商家
+     * 当前数据库角色约定：0用户 1商家 2管理员
+     */
+    private Integer toDbRole(Integer requestRole) {
+        return switch (requestRole) {
+            case 1 -> 2;
+            case 2 -> 1;
+            default -> 0;
+        };
     }
 }

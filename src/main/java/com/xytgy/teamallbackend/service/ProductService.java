@@ -2,6 +2,7 @@ package com.xytgy.teamallbackend.service;
 
 import com.xytgy.teamallbackend.entity.Product;
 import com.baomidou.mybatisplus.extension.service.IService;
+import com.xytgy.teamallbackend.dto.MerchantGoodsAddRequest;
 import com.xytgy.teamallbackend.vo.ProductVO;
 
 import java.util.List;
@@ -13,4 +14,5 @@ import java.util.List;
 */
 public interface ProductService extends IService<Product> {
     List<ProductVO> listAvailableProducts();
+    Long addMerchantGoods(Long merchantId, MerchantGoodsAddRequest request);
 }

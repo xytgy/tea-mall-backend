@@ -2,7 +2,7 @@ package com.xytgy.teamallbackend.service;
 
 import com.xytgy.teamallbackend.entity.User;
 import com.baomidou.mybatisplus.extension.service.IService;
-
+import com.xytgy.teamallbackend.dto.AdminUserAddRequest;
 import com.xytgy.teamallbackend.vo.LoginResponse;
 
 /**
@@ -13,4 +13,5 @@ import com.xytgy.teamallbackend.vo.LoginResponse;
 public interface UserService extends IService<User> {
     LoginResponse login(String userAccount, String password);
     void register(String userAccount, String password, String phone);
+    Long addUserByAdmin(AdminUserAddRequest request);
 }
