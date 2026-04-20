@@ -114,6 +114,18 @@ public class CartController {
         return Result.success(null);
     }
 
+    @RequestMapping(value = "/delete/{id}", method = {RequestMethod.DELETE, RequestMethod.GET, RequestMethod.POST})
+    @Operation(summary = "删除单个购物车项(兼容路径传参)")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "成功"),
+            @ApiResponse(responseCode = "401", description = "未登录")
+    })
+    public Result<Void> deleteById(@PathVariable Long id) {
+        Long userId = currentUserId();
+        cartService.deleteCart(userId, id);
+        return Result.success(null);
+    }
+
     private Long currentUserId() {
         Long userId = UserContext.getCurrentUserId();
         if (userId == null) {

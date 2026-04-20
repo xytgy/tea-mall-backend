@@ -120,7 +120,7 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart>
                 .eq(Cart::getId, cartId)
                 .eq(Cart::getUserId, userId)
                 .remove();
-    }
+    }   
 
     @Override
     public void removeByUserAndProductIds(Long userId, List<Long> productIds) {

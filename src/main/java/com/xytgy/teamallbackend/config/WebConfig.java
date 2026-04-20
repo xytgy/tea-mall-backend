@@ -22,6 +22,7 @@ public class WebConfig implements WebMvcConfigurer {
                         "/api/auth/login",
                         "/api/auth/register",
                         "/api/product/list",
+                        "/api/product/list/**", // 兼容带参数或后缀的情况
                         "/v3/api-docs/**",
                         "/swagger-ui/**",
                         "/swagger-ui.html",
