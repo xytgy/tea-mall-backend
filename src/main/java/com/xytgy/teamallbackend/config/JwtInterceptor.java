@@ -2,7 +2,6 @@ package com.xytgy.teamallbackend.config;
 
 
 import com.xytgy.teamallbackend.common.UserContext;
-import com.xytgy.teamallbackend.entity.User;
 import com.xytgy.teamallbackend.service.UserService;
 import com.xytgy.teamallbackend.utils.JwtUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -38,10 +37,9 @@ public class JwtInterceptor implements HandlerInterceptor {
             try {
                 Map<String, Object> claims = jwtUtils.parseToken(token);
                 
-                // 实时查询数据库校验用户状态
+                // Redis 优先校验用户状态（未命中自动回源数据库并回填）
                 Long userId = Long.valueOf(claims.get("id").toString());
-                User user = userService.getById(userId);
-                if (user == null || (user.getStatus() != null && user.getStatus() == 0)) {
+                if (!userService.isUserEnabled(userId)) {
                     writeUnauthorized(response, "您的账号状态异常或已被封禁，请重新登录");
                     return false;
                 }

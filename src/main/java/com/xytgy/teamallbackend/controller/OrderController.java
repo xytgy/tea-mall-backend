@@ -118,7 +118,7 @@ public class OrderController {
     @Operation(summary = "商家获取自己的订单列表")
     public Result<List<MerchantOrderVO>> merchantList() {
         Long merchantId = currentUserId();
-        requireRole("merchant");
+        requireRole(2);
         return Result.success(ordersService.listMerchantOrders(merchantId));
     }
 
@@ -126,7 +126,7 @@ public class OrderController {
     @Operation(summary = "商家对订单进行发货")
     public Result<Void> deliver(@PathVariable Long orderId) {
         Long merchantId = currentUserId();
-        requireRole("merchant");
+        requireRole(2);
         ordersService.deliverOrder(merchantId, orderId);
         return Result.success(null);
     }
@@ -139,9 +139,12 @@ public class OrderController {
         return userId;
     }
 
-    private void requireRole(String expectRole) {
+    private void requireRole(Integer expectRole) {
         Map<String, Object> user = UserContext.getUser();
-        String role = user == null ? null : String.valueOf(user.get("role"));
+        Integer role = null;
+        if (user != null && user.get("role") != null) {
+            role = Integer.valueOf(String.valueOf(user.get("role")));
+        }
         if (!expectRole.equals(role)) {
             throw new ServiceException(403, "无权限访问");
         }

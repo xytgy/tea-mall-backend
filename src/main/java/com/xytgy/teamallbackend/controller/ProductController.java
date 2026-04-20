@@ -50,7 +50,7 @@ public class ProductController {
     @Operation(summary = "商家获取自己的商品列表")
     public Result<List<ProductVO>> merchantList() {
         Long merchantId = currentUserId();
-        requireRole("merchant");
+        requireRole(2);
         return Result.success(productService.listMerchantProducts(merchantId));
     }
 
@@ -58,7 +58,7 @@ public class ProductController {
     @Operation(summary = "商家发布新商品")
     public Result<Void> add(@RequestBody ProductAddRequest request) {
         Long merchantId = currentUserId();
-        requireRole("merchant");
+        requireRole(2);
         productService.addProduct(merchantId, request);
         return Result.success(null);
     }
@@ -67,7 +67,7 @@ public class ProductController {
     @Operation(summary = "商家编辑商品")
     public Result<Void> update(@RequestBody ProductUpdateRequest request) {
         Long merchantId = currentUserId();
-        requireRole("merchant");
+        requireRole(2);
         productService.updateProduct(merchantId, request);
         return Result.success(null);
     }
@@ -76,7 +76,7 @@ public class ProductController {
     @Operation(summary = "商家上架/下架商品")
     public Result<Void> updateStatus(@RequestBody ProductStatusRequest request) {
         Long merchantId = currentUserId();
-        requireRole("merchant");
+        requireRole(2);
         productService.updateProductStatus(merchantId, request);
         return Result.success(null);
     }
@@ -84,14 +84,14 @@ public class ProductController {
     @GetMapping("/audit/list")
     @Operation(summary = "管理员获取待审核商品列表")
     public Result<List<AuditVO>> auditList() {
-        requireRole("admin");
+        requireRole(1);
         return Result.success(productService.listPendingAuditProducts());
     }
 
     @PutMapping("/audit")
     @Operation(summary = "管理员审核商品")
     public Result<Void> audit(@RequestBody ProductAuditRequest request) {
-        requireRole("admin");
+        requireRole(1);
         productService.auditProduct(request);
         return Result.success(null);
     }
@@ -104,9 +104,12 @@ public class ProductController {
         return userId;
     }
 
-    private void requireRole(String expectRole) {
+    private void requireRole(Integer expectRole) {
         Map<String, Object> user = UserContext.getUser();
-        String role = user == null ? null : String.valueOf(user.get("role"));
+        Integer role = null;
+        if (user != null && user.get("role") != null) {
+            role = Integer.valueOf(String.valueOf(user.get("role")));
+        }
         if (!expectRole.equals(role)) {
             throw new ServiceException(403, "无权限访问");
         }

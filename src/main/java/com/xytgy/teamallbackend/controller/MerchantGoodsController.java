@@ -24,7 +24,7 @@ public class MerchantGoodsController {
     @PostMapping("/add")
     public Result<IdVO> add(@RequestBody MerchantGoodsAddRequest request) {
         Long merchantId = currentUserId();
-        requireRole("merchant");
+        requireRole(2);
         Long id = productService.addMerchantGoods(merchantId, request);
         return Result.success("新商品发布成功", new IdVO(id));
     }
@@ -37,9 +37,12 @@ public class MerchantGoodsController {
         return userId;
     }
 
-    private void requireRole(String expectRole) {
+    private void requireRole(Integer expectRole) {
         Map<String, Object> user = UserContext.getUser();
-        String role = user == null ? null : String.valueOf(user.get("role"));
+        Integer role = null;
+        if (user != null && user.get("role") != null) {
+            role = Integer.valueOf(String.valueOf(user.get("role")));
+        }
         if (!expectRole.equals(role)) {
             throw new ServiceException(403, "无权限访问");
         }

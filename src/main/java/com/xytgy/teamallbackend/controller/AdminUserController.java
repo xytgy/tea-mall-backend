@@ -28,27 +28,30 @@ public class AdminUserController {
 
     @PostMapping("/add")
     public Result<Void> add(@RequestBody AdminUserAddRequest request) {
-        requireRole("admin");
+        requireRole(1);
         userService.addUserByAdmin(request);
         return Result.success(null);
     }
 
     @GetMapping("/list")
     public Result<List<UserVO>> list() {
-        requireRole("admin");
+        requireRole(1);
         return Result.success(userService.listUsersByAdmin());
     }
 
     @PutMapping("/status")
     public Result<Void> updateStatus(@RequestBody UserStatusRequest request) {
-        requireRole("admin");
+        requireRole(1);
         userService.updateUserStatusByAdmin(request.getId(), request.getStatus());
         return Result.success(null);
     }
 
-    private void requireRole(String expectRole) {
+    private void requireRole(Integer expectRole) {
         Map<String, Object> user = UserContext.getUser();
-        String role = user == null ? null : String.valueOf(user.get("role"));
+        Integer role = null;
+        if (user != null && user.get("role") != null) {
+            role = Integer.valueOf(String.valueOf(user.get("role")));
+        }
         if (!expectRole.equals(role)) {
             throw new ServiceException(403, "无权限访问");
         }

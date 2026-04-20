@@ -19,4 +19,5 @@ public interface UserService extends IService<User> {
     Long addUserByAdmin(AdminUserAddRequest request);
     List<UserVO> listUsersByAdmin();
     void updateUserStatusByAdmin(Long id, Integer status);
+    boolean isUserEnabled(Long id);
 }

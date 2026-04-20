@@ -13,6 +13,7 @@ import com.xytgy.teamallbackend.utils.PasswordUtil;
 import com.xytgy.teamallbackend.vo.LoginResponse;
 import com.xytgy.teamallbackend.vo.UserVO;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -30,9 +31,12 @@ import java.util.stream.Collectors;
 @Service
 public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     implements UserService{
+    private static final String USER_STATUS_KEY_PREFIX = "user:status:";
 
     @Autowired
     private JwtUtils jwtUtils;
+    @Autowired
+    private StringRedisTemplate stringRedisTemplate;
 
     @Override
     public LoginResponse login(String userAccount, String password) {
@@ -47,7 +51,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             throw new ServiceException(401, "账号或密码错误");
         }
 
-        if (user.getStatus() != null && user.getStatus() == 0) {
+        if (!isUserEnabled(user.getId())) {
             throw new ServiceException(403, "账号已被禁用，请联系管理员");
         }
 
@@ -105,6 +109,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         user.setIsDeleted(0);
 
         this.save(user);
+        cacheUserStatus(user.getId(), user.getStatus());
     }
 
     @Override
@@ -134,6 +139,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         user.setStatus(request.getStatus());
         user.setIsDeleted(0);
         this.save(user);
+        cacheUserStatus(user.getId(), user.getStatus());
         return user.getId();
     }
 
@@ -194,5 +200,45 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         }
         user.setStatus(status);
         updateById(user);
+        cacheUserStatus(user.getId(), user.getStatus());
+    }
+
+    @Override
+    public boolean isUserEnabled(Long id) {
+        if (id == null) {
+            return false;
+        }
+        String key = userStatusKey(id);
+        try {
+            String cachedStatus = stringRedisTemplate.opsForValue().get(key);
+            if (cachedStatus != null) {
+                return !"0".equals(cachedStatus);
+            }
+        } catch (Exception ignored) {
+            // Redis 故障时降级到数据库
+        }
+
+        User user = getById(id);
+        if (user == null || user.getIsDeleted() == 1) {
+            cacheUserStatus(id, 0);
+            return false;
+        }
+        cacheUserStatus(id, user.getStatus());
+        return user.getStatus() == null || user.getStatus() != 0;
+    }
+
+    private String userStatusKey(Long userId) {
+        return USER_STATUS_KEY_PREFIX + userId;
+    }
+
+    private void cacheUserStatus(Long userId, Integer status) {
+        if (userId == null) {
+            return;
+        }
+        try {
+            stringRedisTemplate.opsForValue().set(userStatusKey(userId), String.valueOf(status == null ? 1 : status));
+        } catch (Exception ignored) {
+            // Redis 故障时不影响主流程
+        }
     }
 }
