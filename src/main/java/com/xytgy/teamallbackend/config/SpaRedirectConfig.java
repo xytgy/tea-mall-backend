@@ -31,8 +31,12 @@ public class SpaRedirectConfig implements WebMvcConfigurer {
                             return requestedResource;
                         }
                         
-                        // 2. 如果请求的是后端 API 接口，不进行前端路由拦截，让它继续走后端的 404 处理
-                        if (resourcePath.startsWith("api/")) {
+                        // 2. 如果请求的是后端 API 接口或 Swagger/Knife4j 资源，不进行前端路由拦截
+                        if (resourcePath.startsWith("api/") || 
+                            resourcePath.startsWith("v3/api-docs") || 
+                            resourcePath.startsWith("swagger-ui") || 
+                            resourcePath.startsWith("doc.html") ||
+                            resourcePath.startsWith("webjars")) {
                             return null;
                         }
                         

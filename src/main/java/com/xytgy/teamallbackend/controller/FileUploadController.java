@@ -1,6 +1,7 @@
 package com.xytgy.teamallbackend.controller;
 
 import com.xytgy.teamallbackend.common.Result;
+import com.xytgy.teamallbackend.common.ResultCode;
 import com.xytgy.teamallbackend.common.UserContext;
 import com.xytgy.teamallbackend.exception.ServiceException;
 import io.swagger.v3.oas.annotations.Operation;
@@ -33,11 +34,11 @@ public class FileUploadController {
     @Operation(summary = "通用图片文件上传接口")
     public Result<String> uploadImage(@RequestParam("file") MultipartFile file, HttpServletRequest request) {
         if (UserContext.getCurrentUserId() == null) {
-            throw new ServiceException(401, "未登录");
+            throw new ServiceException(ResultCode.UNAUTHORIZED, "未登录");
         }
         
         if (file.isEmpty()) {
-            throw new ServiceException(400, "上传文件不能为空");
+            throw new ServiceException(ResultCode.BAD_REQUEST, "上传文件不能为空");
         }
 
         try {
@@ -51,7 +52,7 @@ public class FileUploadController {
             // 检查文件类型，简单防范
             String contentType = file.getContentType();
             if (contentType == null || !contentType.startsWith("image/")) {
-                throw new ServiceException(400, "仅支持上传图片文件");
+                throw new ServiceException(ResultCode.BAD_REQUEST, "仅支持上传图片文件");
             }
 
             // 生成新的UUID文件名
@@ -79,7 +80,7 @@ public class FileUploadController {
 
         } catch (IOException e) {
             e.printStackTrace();
-            throw new ServiceException(500, "文件上传失败");
+            throw new ServiceException(ResultCode.ERROR, "文件上传失败");
         }
     }
 }

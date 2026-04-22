@@ -5,7 +5,7 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-@MapperScan("com.xytgy.teamallbackend.mapper")
+@MapperScan("com.xytgy.teamallbackend.module.*.repository")
 public class TeaMallBackendApplication {
 
     public static void main(String[] args) {

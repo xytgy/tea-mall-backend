@@ -2,7 +2,7 @@ package com.xytgy.teamallbackend.config;
 
 
 import com.xytgy.teamallbackend.common.UserContext;
-import com.xytgy.teamallbackend.service.UserService;
+import com.xytgy.teamallbackend.module.user.service.UserService;
 import com.xytgy.teamallbackend.utils.JwtUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;

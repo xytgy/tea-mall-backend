@@ -26,6 +26,8 @@ public class WebConfig implements WebMvcConfigurer {
                         "/v3/api-docs/**",
                         "/swagger-ui/**",
                         "/swagger-ui.html",
+                        "/doc.html",
+                        "/webjars/**",
                         "/uploads/**" // 排除图片静态资源路径拦截
                 );
     }
@@ -36,5 +38,11 @@ public class WebConfig implements WebMvcConfigurer {
         String uploadPath = new File("uploads/").getAbsolutePath() + File.separator;
         registry.addResourceHandler("/uploads/**")
                 .addResourceLocations("file:" + uploadPath);
+
+        // 解决 Knife4j doc.html 404 问题
+        registry.addResourceHandler("doc.html")
+                .addResourceLocations("classpath:/META-INF/resources/");
+        registry.addResourceHandler("/webjars/**")
+                .addResourceLocations("classpath:/META-INF/resources/webjars/");
     }
 }

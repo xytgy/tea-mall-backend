@@ -1,6 +1,7 @@
 package com.xytgy.teamallbackend.exception;
 
 
+import com.xytgy.teamallbackend.common.ResultCode;
 import com.xytgy.teamallbackend.common.Result;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -16,6 +17,6 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(value = Exception.class)
     public Result<?> handleException(Exception e) {
         e.printStackTrace();
-        return Result.error(500, "系统未知错误，请联系管理员");
+        return Result.error(ResultCode.ERROR);
     }
 }

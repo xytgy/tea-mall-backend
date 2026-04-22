@@ -20,7 +20,7 @@ spring:
       enabled: true
 
 mybatis-plus:
-  mapper-locations: classpath*:/com/xytgy/teamallbackend/mapper/**/*.xml
+  mapper-locations: classpath*:/mapper/**/*.xml
   type-aliases-package: com.xytgy.teamallbackend.entity
   configuration:
     map-underscore-to-camel-case: true
@@ -34,3 +34,8 @@ jwt:
   # 至少 32 字符，生产环境请使用更强随机密钥并通过环境变量注入
   secret: tea-mall-backend-jwt-secret-key-2026
   expiration-ms: 86400000
+
+knife4j:
+  enable: true
+  setting:
+    language: zh_cn
