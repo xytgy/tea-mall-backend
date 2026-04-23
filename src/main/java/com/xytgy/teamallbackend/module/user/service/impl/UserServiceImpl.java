@@ -209,6 +209,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         if (id == null) {
             return false;
         }
+        //设置成redis查询的形式
         String key = userStatusKey(id);
         try {
             String cachedStatus = stringRedisTemplate.opsForValue().get(key);
@@ -219,6 +220,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             // Redis 故障时降级到数据库
         }
 
+        //数据库进行查找，要是没有找到或者是逻辑删除，redis状态设置为0，然后返回
         User user = getById(id);
         if (user == null || user.getIsDeleted() == 1) {
             cacheUserStatus(id, 0);

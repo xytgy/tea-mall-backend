@@ -5,6 +5,7 @@ import java.util.Map;
 public class UserContext {
     private static final ThreadLocal<Map<String, Object>> userThreadLocal = new ThreadLocal<>();
 
+    //ThreadLocal存当前的请求的用户信息，实现全局可访问 + 线程隔离
     public static void setUser(Map<String, Object> user) {
         userThreadLocal.set(user);
     }

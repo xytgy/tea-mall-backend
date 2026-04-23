@@ -35,6 +35,7 @@ public class JwtInterceptor implements HandlerInterceptor {
         if (token != null && token.startsWith("Bearer ")) {
             token = token.substring(7);
             try {
+                //对token进行解码，并获取里面的存入的信息
                 Map<String, Object> claims = jwtUtils.parseToken(token);
                 
                 // Redis 优先校验用户状态（未命中自动回源数据库并回填）
@@ -43,7 +44,8 @@ public class JwtInterceptor implements HandlerInterceptor {
                     writeUnauthorized(response, "您的账号状态异常或已被封禁，请重新登录");
                     return false;
                 }
-                
+
+                //存入用户信息，实现全局可访问 + 线程隔离
                 UserContext.setUser(claims);
                 return true;
             } catch (Exception e) {
@@ -60,6 +62,8 @@ public class JwtInterceptor implements HandlerInterceptor {
         UserContext.clear();
     }
 
+
+    //当用户未授权时，手动返回一个 401 的 JSON 响应给前端
     private void writeUnauthorized(HttpServletResponse response, String msg) throws Exception {
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         response.setCharacterEncoding("UTF-8");
