@@ -30,6 +30,8 @@ import java.util.stream.Collectors;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
+import com.xytgy.teamallbackend.module.shop.service.ShopService;
+
 /**
 * @author xytgy
 * @description 针对表【user】的数据库操作Service实现
@@ -48,6 +50,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     private StringRedisTemplate stringRedisTemplate;
     @Autowired
     private CopyMapper copyMapper;
+    @Autowired
+    private ShopService shopService;
 
     @Override
     public LoginResponse login(LoginRequest request) {
@@ -119,6 +123,15 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         claims.put("userAccount", user.getUserAccount());
         Integer frontendRole = toFrontendRole(user.getRole());
         claims.put("role", frontendRole);
+        
+        Long shopId = null;
+        if (frontendRole == 2) { // 商家角色
+            shopId = shopService.getShopIdByUserId(user.getId());
+            if (shopId != null) {
+                claims.put("shopId", shopId);
+            }
+        }
+
         String accessToken = jwtUtils.createAccessToken(claims);
 
         // 生成 RefreshToken (UUID)
@@ -141,6 +154,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         // 封装返回数据
         LoginResponse.UserInfo userInfo = copyMapper.toUserInfo(user);
         userInfo.setRole(frontendRole);
+        userInfo.setShopId(shopId);
 
         return LoginResponse.builder()
                 .accessToken(accessToken)

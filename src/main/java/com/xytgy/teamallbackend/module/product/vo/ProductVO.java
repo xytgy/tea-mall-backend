@@ -17,4 +17,5 @@ public class ProductVO {
     private String imageUrl;
     private Integer status;
     private Integer sales;
+    private Long merchantId;
 }

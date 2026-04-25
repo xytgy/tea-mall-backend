@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.xytgy.teamallbackend.module.shop.repository.ShopMapper">
+
+    <resultMap id="BaseResultMap" type="com.xytgy.teamallbackend.module.shop.entity.Shop">
+        <id property="id" column="id" />
+        <result property="userId" column="user_id" />
+        <result property="shopName" column="shop_name" />
+        <result property="businessLicense" column="business_license" />
+        <result property="createTime" column="create_time" />
+        <result property="updateTime" column="update_time" />
+    </resultMap>
+
+</mapper>

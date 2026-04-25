@@ -21,5 +21,6 @@ public class LoginResponse {
     public static class UserInfo {
         private String userAccount;
         private Integer role;
+        private Long shopId;
     }
 }

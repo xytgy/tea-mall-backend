@@ -9,12 +9,15 @@ import com.xytgy.teamallbackend.module.user.vo.UserVO;
 import com.xytgy.teamallbackend.module.product.dto.MerchantGoodsAddRequest;
 import com.xytgy.teamallbackend.module.product.dto.ProductAddRequest;
 import com.xytgy.teamallbackend.module.product.entity.Product;
+import com.xytgy.teamallbackend.module.product.entity.ProductReview;
 import com.xytgy.teamallbackend.module.product.vo.AuditVO;
+import com.xytgy.teamallbackend.module.product.vo.ProductReviewVO;
 import com.xytgy.teamallbackend.module.product.vo.ProductVO;
 import com.xytgy.teamallbackend.module.cart.entity.Cart;
 import com.xytgy.teamallbackend.module.cart.vo.CartItemVO;
 import com.xytgy.teamallbackend.module.order.entity.OrderItem;
 import com.xytgy.teamallbackend.module.order.entity.Orders;
+import com.xytgy.teamallbackend.module.favorite.entity.Favorite;
 import com.xytgy.teamallbackend.module.order.dto.OrderCreateRequest;
 import com.xytgy.teamallbackend.module.order.vo.MerchantOrderVO;
 import com.xytgy.teamallbackend.module.order.vo.OrderItemVO;
@@ -56,6 +59,13 @@ public interface CopyMapper {
     @Mapping(source = "product.auditStatus", target = "status")
     AuditVO toAuditVO(Product product, User user);
 
+    @Mapping(target = ".", source = "review")
+    @Mapping(source = "review.id", target = "id")
+    @Mapping(source = "user.userAccount", target = "username")
+    @Mapping(source = "user.avatar", target = "avatar")
+    @Mapping(source = "review.createTime", target = "createTime")
+    ProductReviewVO toProductReviewVO(ProductReview review, User user);
+
     /**
      * Cart 模块
      */
@@ -80,4 +90,11 @@ public interface CopyMapper {
     MerchantOrderVO toMerchantOrderVO(Orders order);
 
     Orders toOrders(OrderCreateRequest request);
+
+    /**
+     * Favorite 模块
+     */
+    @Mapping(source = "userId", target = "userId")
+    @Mapping(source = "productId", target = "productId")
+    Favorite toFavorite(Long userId, Long productId);
 }

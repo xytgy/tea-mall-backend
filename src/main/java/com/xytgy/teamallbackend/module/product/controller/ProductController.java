@@ -11,6 +11,7 @@ import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.module.product.service.ProductService;
 import com.xytgy.teamallbackend.module.product.vo.AuditVO;
 import com.xytgy.teamallbackend.module.product.vo.ProductVO;
+import com.xytgy.teamallbackend.module.product.vo.ProductReviewVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
@@ -95,6 +96,12 @@ public class ProductController {
         requireRole(1);
         productService.auditProduct(request);
         return Result.success(null);
+    }
+
+    @GetMapping("/reviews")
+    @Operation(summary = "获取商品评价列表")
+    public Result<List<ProductReviewVO>> getProductReviews(@RequestParam("productId") Long productId) {
+        return Result.success(productService.listProductReviews(productId));
     }
 
     private Long currentUserId() {

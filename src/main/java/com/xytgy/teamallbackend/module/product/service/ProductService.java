@@ -9,6 +9,7 @@ import com.xytgy.teamallbackend.module.product.dto.ProductUpdateRequest;
 import com.xytgy.teamallbackend.module.product.entity.Product;
 import com.xytgy.teamallbackend.module.product.vo.AuditVO;
 import com.xytgy.teamallbackend.module.product.vo.ProductVO;
+import com.xytgy.teamallbackend.module.product.vo.ProductReviewVO;
 
 import java.util.List;
 
@@ -20,12 +21,11 @@ import java.util.List;
 public interface ProductService extends IService<Product> {
     List<ProductVO> listAvailableProducts();
     Long addMerchantGoods(Long merchantId, MerchantGoodsAddRequest request);
-
     List<ProductVO> listMerchantProducts(Long merchantId);
     void addProduct(Long merchantId, ProductAddRequest request);
     void updateProduct(Long merchantId, ProductUpdateRequest request);
     void updateProductStatus(Long merchantId, ProductStatusRequest request);
-
     List<AuditVO> listPendingAuditProducts();
     void auditProduct(ProductAuditRequest request);
+    List<ProductReviewVO> listProductReviews(Long productId);
 }

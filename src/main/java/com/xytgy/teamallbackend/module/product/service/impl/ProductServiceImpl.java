@@ -1,5 +1,6 @@
 package com.xytgy.teamallbackend.module.product.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.xytgy.teamallbackend.common.ResultCode;
 import com.xytgy.teamallbackend.common.mapstruct.CopyMapper;
@@ -9,6 +10,8 @@ import com.xytgy.teamallbackend.module.product.dto.ProductAuditRequest;
 import com.xytgy.teamallbackend.module.product.dto.ProductStatusRequest;
 import com.xytgy.teamallbackend.module.product.dto.ProductUpdateRequest;
 import com.xytgy.teamallbackend.module.product.entity.Product;
+import com.xytgy.teamallbackend.module.product.entity.ProductReview;
+import com.xytgy.teamallbackend.module.product.repository.ProductReviewMapper;
 import com.xytgy.teamallbackend.module.user.entity.User;
 import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.module.product.repository.ProductMapper;
@@ -16,10 +19,12 @@ import com.xytgy.teamallbackend.module.product.service.ProductService;
 import com.xytgy.teamallbackend.module.user.service.UserService;
 import com.xytgy.teamallbackend.module.product.vo.AuditVO;
 import com.xytgy.teamallbackend.module.product.vo.ProductVO;
+import com.xytgy.teamallbackend.module.product.vo.ProductReviewVO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.time.format.DateTimeFormatter;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -40,6 +45,9 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
 
     @Autowired
     private CopyMapper copyMapper;
+    
+    @Autowired
+    private ProductReviewMapper productReviewMapper;
 
     @Override
     public List<ProductVO> listAvailableProducts() {
@@ -195,6 +203,37 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
         }
         product.setAuditStatus(request.getStatus());
         updateById(product);
+    }
+
+    @Override
+    public List<ProductReviewVO> listProductReviews(Long productId) {
+        if (productId == null) {
+            return Collections.emptyList();
+        }
+        
+        QueryWrapper<ProductReview> queryWrapper = new QueryWrapper<>();
+        queryWrapper.eq("product_id", productId).orderByDesc("create_time");
+        List<ProductReview> reviews = productReviewMapper.selectList(queryWrapper);
+        
+        if (reviews == null || reviews.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        Set<Long> userIds = reviews.stream().map(ProductReview::getUserId).collect(Collectors.toSet());
+        Map<Long, User> userMap = userService.listByIds(userIds).stream()
+                .collect(Collectors.toMap(User::getId, u -> u));
+
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+        return reviews.stream().map(r -> {
+            User u = userMap.get(r.getUserId());
+            ProductReviewVO vo = copyMapper.toProductReviewVO(r, u);
+            if (u == null) {
+                vo.setUsername("匿名用户");
+            }
+            vo.setCreateTime(r.getCreateTime() == null ? null : r.getCreateTime().format(formatter));
+            return vo;
+        }).collect(Collectors.toList());
     }
 
     private ProductVO toVO(Product product) {

@@ -22,6 +22,22 @@ public class UserContext {
         return null;
     }
 
+    public static Long getShopId() {
+        Map<String, Object> user = getUser();
+        if (user != null && user.get("shopId") != null) {
+            return Long.valueOf(user.get("shopId").toString());
+        }
+        return null;
+    }
+
+    public static void setShopId(Long shopId) {
+        Map<String, Object> user = getUser();
+        if (user != null && shopId != null) {
+            user.put("shopId", shopId);
+            setUser(user);
+        }
+    }
+
     public static void clear() {
         userThreadLocal.remove();
     }
