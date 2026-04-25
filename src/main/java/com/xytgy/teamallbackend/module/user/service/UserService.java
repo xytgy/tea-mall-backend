@@ -2,6 +2,8 @@ package com.xytgy.teamallbackend.module.user.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.xytgy.teamallbackend.module.user.dto.AdminUserAddRequest;
+import com.xytgy.teamallbackend.module.user.dto.LoginRequest;
+import com.xytgy.teamallbackend.module.user.dto.RegisterRequest;
 import com.xytgy.teamallbackend.module.user.entity.User;
 import com.xytgy.teamallbackend.module.user.vo.LoginResponse;
 import com.xytgy.teamallbackend.module.user.vo.UserVO;
@@ -14,10 +16,12 @@ import java.util.List;
 * @createDate 2026-04-15 07:59:22
 */
 public interface UserService extends IService<User> {
-    LoginResponse login(String userAccount, String password);
-    void register(String userAccount, String password, String confirmPassword, String phone);
+    LoginResponse login(LoginRequest request);
+    LoginResponse refreshToken(String refreshToken);
+    void register(RegisterRequest request);
     Long addUserByAdmin(AdminUserAddRequest request);
     List<UserVO> listUsersByAdmin();
     void updateUserStatusByAdmin(Long id, Integer status);
     boolean isUserEnabled(Long id);
+    void logout();
 }

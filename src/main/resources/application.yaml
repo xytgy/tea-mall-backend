@@ -41,7 +41,8 @@ server:
 jwt:
   # 至少 32 字符，生产环境请使用更强随机密钥并通过环境变量注入
   secret: tea-mall-backend-jwt-secret-key-2026
-  expiration-ms: 86400000
+  access-token-expiration-ms: 1800000 # 30 分钟
+  refresh-token-expiration-ms: 604800000 # 7 天
 
 knife4j:
   enable: true

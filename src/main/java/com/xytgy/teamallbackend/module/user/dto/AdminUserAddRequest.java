@@ -9,7 +9,7 @@ import lombok.Data;
 @Data
 public class AdminUserAddRequest {
     @NotBlank(message = "用户名不能为空")
-    private String username;
+    private String userAccount;
     @NotNull(message = "角色不能为空")
     @Min(value = 0, message = "角色值非法")
     @Max(value = 2, message = "角色值非法")

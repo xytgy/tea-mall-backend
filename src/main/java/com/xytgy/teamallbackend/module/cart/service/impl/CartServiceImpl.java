@@ -2,6 +2,7 @@ package com.xytgy.teamallbackend.module.cart.service.impl;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.xytgy.teamallbackend.common.ResultCode;
+import com.xytgy.teamallbackend.common.mapstruct.CopyMapper;
 import com.xytgy.teamallbackend.module.cart.entity.Cart;
 import com.xytgy.teamallbackend.module.product.entity.Product;
 import com.xytgy.teamallbackend.exception.ServiceException;
@@ -29,6 +30,9 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart>
 
     @Autowired
     private ProductService productService;
+
+    @Autowired
+    private CopyMapper copyMapper;
 
     @Override
     public CartItemVO addToCart(Long userId, Long productId, Integer quantity) {
@@ -139,22 +143,14 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart>
             return CartItemVO.builder()
                     .id(cart.getId())
                     .productId(cart.getProductId())
-                    .productName("")
-                    .productPrice(null)
+                    .name("")
+                    .price(null)
                     .quantity(cart.getQuantity())
                     .stock(0)
                     .imageUrl("")
                     .build();
         }
-        return CartItemVO.builder()
-                .id(cart.getId())
-                .productId(product.getId())
-                .productName(product.getName())
-                .productPrice(product.getPrice())
-                .quantity(cart.getQuantity())
-                .stock(product.getStock())
-                .imageUrl(product.getImageUrl())
-                .build();
+        return copyMapper.toCartItemVO(cart, product);
     }
 }
 

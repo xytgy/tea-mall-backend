@@ -10,7 +10,8 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class LoginResponse {
-    private String token;
+    private String accessToken;
+    private String refreshToken;
     private UserInfo userInfo;
 
     @Data
@@ -18,7 +19,7 @@ public class LoginResponse {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class UserInfo {
-        private String username;
+        private String userAccount;
         private Integer role;
     }
 }

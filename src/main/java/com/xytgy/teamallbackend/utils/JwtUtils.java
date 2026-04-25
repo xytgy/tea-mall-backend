@@ -18,8 +18,11 @@ public class JwtUtils {
     @Value("${jwt.secret}")
     private String secret;
 
-    @Value("${jwt.expiration-ms:86400000}")
-    private long expirationTime;
+    @Value("${jwt.access-token-expiration-ms:1800000}") // 默认 30 分钟
+    private long accessTokenExpiration;
+
+    @Value("${jwt.refresh-token-expiration-ms:604800000}") // 默认 7 天
+    private long refreshTokenExpiration;
 
     private SecretKey key;
 
@@ -31,18 +34,13 @@ public class JwtUtils {
         this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
     }
 
-    public String createToken(Map<String, Object> claims) {
+    /**
+     * 创建 AccessToken (JWT)
+     */
+    public String createAccessToken(Map<String, Object> claims) {
         return Jwts.builder()
                 .setClaims(claims)
-                .setExpiration(new Date(System.currentTimeMillis() + expirationTime))
-                .signWith(key, SignatureAlgorithm.HS256)
-                .compact();
-    }
-
-    public String createToken(String username) {
-        return Jwts.builder()
-                .setSubject(username)
-                .setExpiration(new Date(System.currentTimeMillis() + expirationTime))
+                .setExpiration(new Date(System.currentTimeMillis() + accessTokenExpiration))
                 .signWith(key, SignatureAlgorithm.HS256)
                 .compact();
     }

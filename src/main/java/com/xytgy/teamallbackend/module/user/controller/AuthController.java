@@ -21,7 +21,7 @@ public class AuthController {
     @PostMapping("/login")
     public Result<LoginResponse> login(@RequestBody LoginRequest request) {
         try {
-            LoginResponse data = userService.login(request.getUserAccount(), request.getPassword());
+            LoginResponse data = userService.login(request);
             return Result.success("登录成功", data);
         } catch (ServiceException e) {
             return Result.error(e.getCode(), e.getMessage());
@@ -33,12 +33,22 @@ public class AuthController {
     @PostMapping("/register")
     public Result<Void> register(@RequestBody RegisterRequest request) {
         try {
-            userService.register(request.getUserAccount(), request.getPassword(), request.getConfirmPassword(), request.getPhone());
+            userService.register(request);
             return Result.success("注册成功", null);
         } catch (ServiceException e) {
             return Result.error(e.getCode(), e.getMessage());
         } catch (Exception e) {
             return Result.error(409, e.getMessage());
+        }
+    }
+
+    @PostMapping("/logout")
+    public Result<Void> logout() {
+        try {
+            userService.logout();
+            return Result.success("退出成功", null);
+        } catch (Exception e) {
+            return Result.error(500, e.getMessage());
         }
     }
 }

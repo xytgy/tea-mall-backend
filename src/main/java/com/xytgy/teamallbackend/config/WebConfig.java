@@ -21,6 +21,7 @@ public class WebConfig implements WebMvcConfigurer {
                 .excludePathPatterns(
                         "/api/auth/login",
                         "/api/auth/register",
+                        "/api/user/refresh/token",
                         "/api/product/list",
                         "/api/product/list/**", // 兼容带参数或后缀的情况
                         "/v3/api-docs/**",

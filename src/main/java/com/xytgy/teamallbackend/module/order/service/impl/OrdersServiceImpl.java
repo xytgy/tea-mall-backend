@@ -2,6 +2,7 @@ package com.xytgy.teamallbackend.module.order.service.impl;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.xytgy.teamallbackend.common.ResultCode;
+import com.xytgy.teamallbackend.common.mapstruct.CopyMapper;
 import com.xytgy.teamallbackend.module.order.dto.OrderCreateRequest;
 import com.xytgy.teamallbackend.module.order.dto.OrderPayRequest;
 import com.xytgy.teamallbackend.module.order.entity.OrderItem;
@@ -41,6 +42,9 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
     private OrderItemService orderItemService;
     @Autowired
     private CartService cartService;
+    
+    @Autowired
+    private CopyMapper copyMapper;
 
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -82,14 +86,11 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
             totalAmount = totalAmount.add(product.getPrice().multiply(BigDecimal.valueOf(entry.getValue())));
         }
 
-        Orders order = new Orders();
+        Orders order = copyMapper.toOrders(request);
         order.setOrderNo(generateOrderNo(userId));
         order.setUserId(userId);
         order.setTotalAmount(totalAmount);
         order.setStatus(0);
-        order.setReceiverName(request.getReceiverName());
-        order.setReceiverPhone(request.getReceiverPhone());
-        order.setReceiverAddress(request.getReceiverAddress());
         save(order);
 
         List<OrderItem> orderItems = new ArrayList<>();
@@ -132,24 +133,12 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
                 .stream()
                 .collect(Collectors.groupingBy(OrderItem::getOrderId));
 
-        return orders.stream().map(order -> OrderVO.builder()
-                .id(order.getId())
-                .orderNo(order.getOrderNo())
-                .totalAmount(order.getTotalAmount())
-                .status(order.getStatus())
-                .receiverName(order.getReceiverName())
-                .receiverPhone(order.getReceiverPhone())
-                .receiverAddress(order.getReceiverAddress())
-                .createTime(order.getCreateTime() == null ? null : order.getCreateTime().format(TIME_FORMATTER))
-                .items(orderItemMap.getOrDefault(order.getId(), Collections.emptyList())
-                        .stream()
-                        .map(item -> OrderItemVO.builder()
-                                .productName(item.getProductName())
-                                .productPrice(item.getProductPrice())
-                                .quantity(item.getQuantity())
-                                .build())
-                        .toList())
-                .build()).toList();
+        return orders.stream().map(order -> {
+            List<OrderItem> items = orderItemMap.getOrDefault(order.getId(), Collections.emptyList());
+            OrderVO vo = copyMapper.toOrderVO(order, items);
+            vo.setCreateTime(order.getCreateTime() == null ? null : order.getCreateTime().format(TIME_FORMATTER));
+            return vo;
+        }).toList();
     }
 
     @Override
@@ -233,14 +222,11 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
                 .orderByDesc(Orders::getCreateTime)
                 .list();
 
-        return orders.stream().map(order -> MerchantOrderVO.builder()
-                .id(order.getId())
-                .orderNo(order.getOrderNo())
-                .receiverName(order.getReceiverName())
-                .totalAmount(order.getTotalAmount())
-                .createTime(order.getCreateTime() == null ? null : order.getCreateTime().format(TIME_FORMATTER))
-                .status(order.getStatus())
-                .build()).collect(Collectors.toList());
+        return orders.stream().map(order -> {
+            MerchantOrderVO vo = copyMapper.toMerchantOrderVO(order);
+            vo.setCreateTime(order.getCreateTime() == null ? null : order.getCreateTime().format(TIME_FORMATTER));
+            return vo;
+        }).collect(Collectors.toList());
     }
 
     @Override

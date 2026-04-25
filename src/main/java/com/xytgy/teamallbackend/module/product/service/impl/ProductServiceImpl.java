@@ -2,6 +2,7 @@ package com.xytgy.teamallbackend.module.product.service.impl;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.xytgy.teamallbackend.common.ResultCode;
+import com.xytgy.teamallbackend.common.mapstruct.CopyMapper;
 import com.xytgy.teamallbackend.module.product.dto.MerchantGoodsAddRequest;
 import com.xytgy.teamallbackend.module.product.dto.ProductAddRequest;
 import com.xytgy.teamallbackend.module.product.dto.ProductAuditRequest;
@@ -37,6 +38,9 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
     @Autowired
     private UserService userService;
 
+    @Autowired
+    private CopyMapper copyMapper;
+
     @Override
     public List<ProductVO> listAvailableProducts() {
         return lambdaQuery()
@@ -69,11 +73,8 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
             throw new ServiceException(ResultCode.BAD_REQUEST, "status 仅支持 0 或 1");
         }
 
-        Product product = new Product();
+        Product product = copyMapper.toProduct(request);
         product.setName(request.getName().trim());
-        product.setPrice(request.getPrice());
-        product.setStock(request.getStock());
-        product.setStatus(request.getStatus());
         product.setMerchantId(merchantId);
         // 数据库无 sales 字段时依赖表默认值；有字段时建议 default 0
         save(product);
@@ -103,14 +104,8 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
                 || request.getStatus() == null) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "参数不完整");
         }
-        Product product = new Product();
+        Product product = copyMapper.toProduct(request);
         product.setName(request.getName().trim());
-        product.setCategory(request.getCategory());
-        product.setImageUrl(request.getImageUrl());
-        product.setDescription(request.getDescription());
-        product.setPrice(request.getPrice());
-        product.setStock(request.getStock());
-        product.setStatus(request.getStatus());
         product.setMerchantId(merchantId);
         product.setAuditStatus(0); // 待审核
         product.setSales(0);
@@ -181,14 +176,11 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
 
         return list.stream().map(p -> {
             User u = userMap.get(p.getMerchantId());
-            return AuditVO.builder()
-                    .id(p.getId())
-                    .name(p.getName())
-                    .merchant(u != null ? u.getNickname() : "未知商家")
-                    .price(p.getPrice())
-                    .submitTime(p.getCreateTime())
-                    .status(p.getAuditStatus())
-                    .build();
+            AuditVO vo = copyMapper.toAuditVO(p, u);
+            if (u == null) {
+                vo.setMerchant("未知商家");
+            }
+            return vo;
         }).collect(Collectors.toList());
     }
 
@@ -206,17 +198,9 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
     }
 
     private ProductVO toVO(Product product) {
-        return ProductVO.builder()
-                .id(product.getId())
-                .name(product.getName())
-                .category(product.getCategory())
-                .description(product.getDescription())
-                .price(product.getPrice())
-                .stock(product.getStock())
-                .imageUrl(product.getImageUrl())
-                .status(product.getStatus())
-                .sales(product.getSales() == null ? 0 : product.getSales())
-                .build();
+        ProductVO vo = copyMapper.toProductVO(product);
+        vo.setSales(product.getSales() == null ? 0 : product.getSales());
+        return vo;
     }
 }
 

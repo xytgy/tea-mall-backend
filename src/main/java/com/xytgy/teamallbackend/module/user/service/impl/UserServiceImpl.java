@@ -15,14 +15,20 @@ import com.xytgy.teamallbackend.module.user.vo.LoginResponse;
 import com.xytgy.teamallbackend.module.user.vo.UserVO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import com.xytgy.teamallbackend.module.user.dto.LoginRequest;
+import com.xytgy.teamallbackend.common.mapstruct.CopyMapper;
+import com.xytgy.teamallbackend.module.user.dto.RegisterRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
-
+import com.xytgy.teamallbackend.common.UserContext;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 /**
 * @author xytgy
@@ -33,17 +39,25 @@ import java.util.stream.Collectors;
 public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     implements UserService{
     private static final String USER_STATUS_KEY_PREFIX = "user:status:";
+    private static final String LOGIN_USER_KEY_PREFIX = "login:user:";
+    private static final String REFRESH_TOKEN_KEY_PREFIX = "login:refresh:token:";
 
     @Autowired
     private JwtUtils jwtUtils;
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
+    @Autowired
+    private CopyMapper copyMapper;
 
     @Override
-    public LoginResponse login(String userAccount, String password) {
-        if (!StringUtils.hasText(userAccount) || !StringUtils.hasText(password)) {
+    public LoginResponse login(LoginRequest request) {
+        if (request == null || !StringUtils.hasText(request.getUserAccount()) || !StringUtils.hasText(request.getPassword())) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "账号和密码不能为空");
         }
+        User paramUser = copyMapper.toUser(request);
+        String userAccount = paramUser.getUserAccount();
+        String password = paramUser.getPassword();
+
         QueryWrapper<User> queryWrapper = new QueryWrapper<>();
         queryWrapper.eq("useraccount", userAccount);
         User user = this.getOne(queryWrapper);
@@ -69,42 +83,92 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             throw new ServiceException(ResultCode.UNAUTHORIZED, "账号或密码错误");
         }
 
-        // 生成 JWT Token
+        return createLoginResponse(user);
+    }
+
+    @Override
+    public LoginResponse refreshToken(String refreshToken) {
+        if (!StringUtils.hasText(refreshToken)) {
+            throw new ServiceException(ResultCode.BAD_REQUEST, "RefreshToken 不能为空");
+        }
+
+        String key = REFRESH_TOKEN_KEY_PREFIX + refreshToken;
+        String userIdStr = stringRedisTemplate.opsForValue().get(key);
+
+        if (!StringUtils.hasText(userIdStr)) {
+            throw new ServiceException(ResultCode.UNAUTHORIZED, "RefreshToken 已过期或无效，请重新登录");
+        }
+
+        // 校验通过，作废旧 Token
+        stringRedisTemplate.delete(key);
+
+        // 生成新的一对 Token
+        Long userId = Long.valueOf(userIdStr);
+        User user = this.getById(userId);
+        if (user == null || !isUserEnabled(userId)) {
+            throw new ServiceException(ResultCode.UNAUTHORIZED, "账号状态异常，请重新登录");
+        }
+
+        return createLoginResponse(user);
+    }
+
+    private LoginResponse createLoginResponse(User user) {
+        // 生成 JWT AccessToken
         Map<String, Object> claims = new HashMap<>();
         claims.put("id", user.getId());
         claims.put("userAccount", user.getUserAccount());
         Integer frontendRole = toFrontendRole(user.getRole());
         claims.put("role", frontendRole);
-        String token = jwtUtils.createToken(claims);
+        String accessToken = jwtUtils.createAccessToken(claims);
+
+        // 生成 RefreshToken (UUID)
+        String refreshToken = UUID.randomUUID().toString().replace("-", "");
+        
+        // 存入 Redis (RefreshToken)
+        stringRedisTemplate.opsForValue().set(
+                REFRESH_TOKEN_KEY_PREFIX + refreshToken,
+                user.getId().toString(),
+                7, TimeUnit.DAYS // 默认 7 天，可以从配置读
+        );
+
+        // 存入 Redis (在线状态)
+        stringRedisTemplate.opsForValue().set(
+                LOGIN_USER_KEY_PREFIX + user.getId(),
+                "online",
+                7, TimeUnit.DAYS
+        );
 
         // 封装返回数据
+        LoginResponse.UserInfo userInfo = copyMapper.toUserInfo(user);
+        userInfo.setRole(frontendRole);
+
         return LoginResponse.builder()
-                .token(token)
-                .userInfo(LoginResponse.UserInfo.builder()
-                        .username(user.getUserAccount())
-                        .role(frontendRole)
-                        .build())
+                .accessToken(accessToken)
+                .refreshToken(refreshToken)
+                .userInfo(userInfo)
                 .build();
     }
 
     @Override
-    public void register(String userAccount, String password, String confirmPassword, String phone) {
-        if (!StringUtils.hasText(userAccount) || !StringUtils.hasText(password) || !StringUtils.hasText(confirmPassword)) {
+    public void register(RegisterRequest request) {
+        if (request == null || !StringUtils.hasText(request.getUserAccount()) || !StringUtils.hasText(request.getPassword()) || !StringUtils.hasText(request.getConfirmPassword())) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "账号和密码不能为空");
         }
-        if (!password.equals(confirmPassword)) {
+        if (!request.getPassword().equals(request.getConfirmPassword())) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "两次输入的密码不一致");
         }
+        
+        User user = copyMapper.toUser(request);
+        String userAccount = user.getUserAccount();
+        
         QueryWrapper<User> queryWrapper = new QueryWrapper<>();
         queryWrapper.eq("useraccount", userAccount);
         if (this.count(queryWrapper) > 0) {
             throw new ServiceException(ResultCode.CONFLICT, "该账号已被注册");
         }
 
-        User user = new User();
-        user.setUserAccount(userAccount);
-        user.setPassword(PasswordUtil.encrypt(password));
-        user.setPhone(phone != null ? phone : "");
+        user.setPassword(PasswordUtil.encrypt(user.getPassword()));
+        user.setPhone(user.getPhone() != null ? user.getPhone() : "");
         user.setRole(UserRole.USER.getCode()); // 默认普通用户
         user.setStatus(1); // 默认状态正常
         user.setIsDeleted(0);
@@ -115,7 +179,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
 
     @Override
     public Long addUserByAdmin(AdminUserAddRequest request) {
-        if (request == null || !StringUtils.hasText(request.getUsername())
+        if (request == null || !StringUtils.hasText(request.getUserAccount())
                 || request.getRole() == null || request.getStatus() == null) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "参数不完整");
         }
@@ -126,18 +190,16 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             throw new ServiceException(ResultCode.BAD_REQUEST, "role 仅支持 0/1/2");
         }
 
-        String username = request.getUsername().trim();
+        String userAccount = request.getUserAccount().trim();
         QueryWrapper<User> existsQuery = new QueryWrapper<>();
-        existsQuery.eq("useraccount", username);
+        existsQuery.eq("useraccount", userAccount);
         if (this.count(existsQuery) > 0) {
             throw new ServiceException(ResultCode.CONFLICT, "用户名已存在");
         }
 
-        User user = new User();
-        user.setUserAccount(username);
+        User user = copyMapper.toUser(request);
         user.setPassword(PasswordUtil.encrypt("123456"));
         user.setRole(toDbRole(request.getRole()));
-        user.setStatus(request.getStatus());
         user.setIsDeleted(0);
         this.save(user);
         cacheUserStatus(user.getId(), user.getStatus());
@@ -172,18 +234,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
                 .orderByDesc(User::getCreateTime)
                 .list()
                 .stream()
-                .map(user -> UserVO.builder()
-                        .id(user.getId())
-                        .username(user.getUserAccount())
-                        .nickname(user.getNickname())
-                        .avatar(user.getAvatar())
-                        .gender(user.getGender())
-                        .phone(user.getPhone())
-                        .email(user.getEmail())
-                        .status(user.getStatus())
-                        .role(toFrontendRole(user.getRole()))
-                        .createTime(user.getCreateTime() == null ? null : user.getCreateTime().format(formatter))
-                        .build())
+                .map(user -> {
+                    UserVO vo = copyMapper.toUserVO(user);
+                    vo.setRole(toFrontendRole(user.getRole()));
+                    vo.setCreateTime(user.getCreateTime() == null ? null : user.getCreateTime().format(formatter));
+                    return vo;
+                })
                 .collect(Collectors.toList());
     }
 
@@ -228,6 +284,19 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         }
         cacheUserStatus(id, user.getStatus());
         return user.getStatus() == null || user.getStatus() != 0;
+    }
+
+    @Override
+    public void logout() {
+        Long userId = UserContext.getCurrentUserId();
+        if (userId == null) {
+            return;
+        }
+        // 清除在线状态
+        stringRedisTemplate.delete(LOGIN_USER_KEY_PREFIX + userId);
+        
+        // 注意：因为 RefreshToken 是 UUID 作为 key 存的，我们目前没有维护 userId -> refreshToken 的反向映射。
+        // 由于只要删除了在线状态 (LOGIN_USER_KEY_PREFIX)，拦截器就会拦截所有请求，达到登出效果。
     }
 
     private String userStatusKey(Long userId) {
