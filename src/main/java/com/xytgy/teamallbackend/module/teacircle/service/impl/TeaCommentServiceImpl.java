@@ -87,11 +87,11 @@ public class TeaCommentServiceImpl extends ServiceImpl<TeaCommentMapper, TeaComm
                     .eq(TeaComment::getIsDeleted, 0)
                     .orderByAsc(TeaComment::getCreateTime)
                     .list();
-            vo.setReplies(replies.stream().map(this::toVO).collect(Collectors.toList()));
+            vo.setChildren(replies.stream().map(this::toVO).collect(Collectors.toList()));
             return vo;
         }).collect(Collectors.toList());
 
-        return new PageResult<>(records, p.getTotal(), p.getSize(), p.getCurrent());
+        return new PageResult<>(records, p.getTotal(), p.getCurrent(), p.getSize());
     }
 
     private TeaCommentVO toVO(TeaComment comment) {
@@ -101,15 +101,21 @@ public class TeaCommentServiceImpl extends ServiceImpl<TeaCommentMapper, TeaComm
         
         User u = userService.getById(comment.getUserId());
         if (u != null) {
-            vo.setUserAccount(u.getUserAccount());
-            vo.setNickname(u.getNickname());
-            vo.setAvatar(u.getAvatar());
+            com.xytgy.teamallbackend.module.teacircle.vo.AuthorVO author = new com.xytgy.teamallbackend.module.teacircle.vo.AuthorVO();
+            author.setId(u.getId());
+            author.setNickname(u.getNickname() != null ? u.getNickname() : u.getUserAccount());
+            author.setAvatar(u.getAvatar());
+            vo.setAuthor(author);
         }
 
         if (comment.getReplyToUserId() != null) {
             User target = userService.getById(comment.getReplyToUserId());
             if (target != null) {
-                vo.setReplyToUserNickname(target.getNickname() != null ? target.getNickname() : target.getUserAccount());
+                com.xytgy.teamallbackend.module.teacircle.vo.AuthorVO replyAuthor = new com.xytgy.teamallbackend.module.teacircle.vo.AuthorVO();
+                replyAuthor.setId(target.getId());
+                replyAuthor.setNickname(target.getNickname() != null ? target.getNickname() : target.getUserAccount());
+                replyAuthor.setAvatar(target.getAvatar());
+                vo.setReplyToUser(replyAuthor);
             }
         }
 

@@ -7,9 +7,6 @@ import java.util.List;
 public class TeaPostVO {
     private Long id;
     private Long userId;
-    private String userAccount;
-    private String nickname;
-    private String avatar;
     private String content;
     private List<String> images;
     private Integer likeCount;
@@ -17,4 +14,6 @@ public class TeaPostVO {
     private Boolean isLiked;
     private Boolean isFollowing;
     private String createTime;
+    private AuthorVO author;
 }
+

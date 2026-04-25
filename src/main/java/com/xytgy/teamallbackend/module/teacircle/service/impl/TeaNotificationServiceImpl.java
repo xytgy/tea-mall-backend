@@ -51,15 +51,18 @@ public class TeaNotificationServiceImpl extends ServiceImpl<TeaNotificationMappe
             vo.setCreateTime(n.getCreateTime() != null ? n.getCreateTime().format(FORMATTER) : null);
             User actor = userService.getById(n.getActorId());
             if (actor != null) {
-                vo.setActorNickname(actor.getNickname() != null ? actor.getNickname() : actor.getUserAccount());
-                vo.setActorAvatar(actor.getAvatar());
+                com.xytgy.teamallbackend.module.teacircle.vo.AuthorVO authorVO = new com.xytgy.teamallbackend.module.teacircle.vo.AuthorVO();
+                authorVO.setId(actor.getId());
+                authorVO.setNickname(actor.getNickname() != null ? actor.getNickname() : actor.getUserAccount());
+                authorVO.setAvatar(actor.getAvatar());
+                vo.setActor(authorVO);
             }
             // 可以根据 sourceId 查具体的点赞/评论内容，由于篇幅暂略，返回基本类型
             vo.setSourceContent("新" + n.getType() + "通知");
             return vo;
         }).collect(Collectors.toList());
 
-        return new PageResult<>(records, p.getTotal(), p.getSize(), p.getCurrent());
+        return new PageResult<>(records, p.getTotal(), p.getCurrent(), p.getSize());
     }
 
     @Override

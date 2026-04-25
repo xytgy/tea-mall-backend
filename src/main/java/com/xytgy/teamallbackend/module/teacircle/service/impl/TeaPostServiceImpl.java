@@ -159,7 +159,7 @@ public class TeaPostServiceImpl extends ServiceImpl<TeaPostMapper, TeaPost> impl
         List<TeaPostVO> records = p.getRecords().stream()
                 .map(post -> toVO(post, currentUserId))
                 .collect(Collectors.toList());
-        return new PageResult<>(records, p.getTotal(), p.getSize(), p.getCurrent());
+        return new PageResult<>(records, p.getTotal(), p.getCurrent(), p.getSize());
     }
 
     private TeaPostVO toVO(TeaPost post, Long currentUserId) {
@@ -175,9 +175,11 @@ public class TeaPostServiceImpl extends ServiceImpl<TeaPostMapper, TeaPost> impl
 
         User u = userService.getById(post.getUserId());
         if (u != null) {
-            vo.setUserAccount(u.getUserAccount());
-            vo.setNickname(u.getNickname());
-            vo.setAvatar(u.getAvatar());
+            com.xytgy.teamallbackend.module.teacircle.vo.AuthorVO author = new com.xytgy.teamallbackend.module.teacircle.vo.AuthorVO();
+            author.setId(u.getId());
+            author.setNickname(u.getNickname() != null ? u.getNickname() : u.getUserAccount());
+            author.setAvatar(u.getAvatar());
+            vo.setAuthor(author);
         }
 
         if (currentUserId != null) {

@@ -73,7 +73,7 @@ public class TeaFollowServiceImpl extends ServiceImpl<TeaFollowMapper, TeaFollow
         List<SimpleUserVO> records = p.getRecords().stream()
                 .map(f -> toSimpleUserVO(f.getFollowingId(), currentUserId))
                 .collect(Collectors.toList());
-        return new PageResult<>(records, p.getTotal(), p.getSize(), p.getCurrent());
+        return new PageResult<>(records, p.getTotal(), p.getCurrent(), p.getSize());
     }
 
     @Override
@@ -86,7 +86,7 @@ public class TeaFollowServiceImpl extends ServiceImpl<TeaFollowMapper, TeaFollow
         List<SimpleUserVO> records = p.getRecords().stream()
                 .map(f -> toSimpleUserVO(f.getFollowerId(), currentUserId))
                 .collect(Collectors.toList());
-        return new PageResult<>(records, p.getTotal(), p.getSize(), p.getCurrent());
+        return new PageResult<>(records, p.getTotal(), p.getCurrent(), p.getSize());
     }
 
     @Override
