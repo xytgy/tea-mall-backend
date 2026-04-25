@@ -24,6 +24,8 @@ public class WebConfig implements WebMvcConfigurer {
                         "/api/user/refresh/token",
                         "/api/product/list",
                         "/api/product/list/**", // 兼容带参数或后缀的情况
+                        "/api/product/reviews",
+                        "/api/store/**",
                         "/v3/api-docs/**",
                         "/swagger-ui/**",
                         "/swagger-ui.html",

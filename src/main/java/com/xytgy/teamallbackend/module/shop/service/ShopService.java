@@ -27,5 +27,10 @@ public interface ShopService extends IService<Shop> {
      * 修改店铺信息
      */
     void updateShop(ShopUpdateRequest request, Long userId);
+
+    /**
+     * 根据店铺ID获取公开店铺信息
+     */
+    ShopVO getShopById(Long shopId);
 }
 

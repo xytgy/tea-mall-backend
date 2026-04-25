@@ -89,5 +89,20 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements Sh
         
         this.updateById(shop);
     }
+
+    @Override
+    public ShopVO getShopById(Long shopId) {
+        if (shopId == null) {
+            throw new ServiceException(ResultCode.BAD_REQUEST, "店铺ID不能为空");
+        }
+        Shop shop = this.getById(shopId);
+        if (shop == null) {
+            throw new ServiceException(ResultCode.NOT_FOUND, "店铺不存在");
+        }
+        ShopVO vo = new ShopVO();
+        BeanUtils.copyProperties(shop, vo);
+        // 这里可以做一些脱敏处理，比如隐藏某些隐私字段
+        return vo;
+    }
 }
 

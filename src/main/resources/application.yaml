@@ -29,7 +29,7 @@ spring:
 
 mybatis-plus:
   mapper-locations: classpath*:/mapper/**/*.xml
-  type-aliases-package: com.xytgy.teamallbackend.module.user.entity,com.xytgy.teamallbackend.module.product.entity,com.xytgy.teamallbackend.module.cart.entity,com.xytgy.teamallbackend.module.order.entity
+  type-aliases-package: com.xytgy.teamallbackend.module.user.entity,com.xytgy.teamallbackend.module.product.entity,com.xytgy.teamallbackend.module.cart.entity,com.xytgy.teamallbackend.module.order.entity,com.xytgy.teamallbackend.module.shop.entity
   configuration:
     map-underscore-to-camel-case: true
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl # 打印SQL日志

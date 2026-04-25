@@ -17,7 +17,6 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import io.swagger.v3.oas.annotations.parameters.RequestBody;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -34,7 +33,7 @@ public class CartController {
 
     @PostMapping("/add")
     @Operation(summary = "加入购物车")
-    public Result<Void> add(@RequestBody CartAddRequest request) {
+    public Result<Void> add(@org.springframework.web.bind.annotation.RequestBody CartAddRequest request) {
         Long userId = currentUserId();
         cartService.addToCart(userId, request.getProductId(), request.getQuantity());
         return Result.success(null);
@@ -57,7 +56,7 @@ public class CartController {
 
     @RequestMapping(value = "/update", method = {RequestMethod.PUT, RequestMethod.POST})
     @Operation(summary = "修改购物车商品数量")
-    public Result<Void> update(@RequestBody CartUpdateRequest request) {
+    public Result<Void> update(@org.springframework.web.bind.annotation.RequestBody CartUpdateRequest request) {
         Long userId = currentUserId();
         cartService.updateCart(userId, request.getId(), request.getQuantity());
         return Result.success(null);
@@ -65,7 +64,7 @@ public class CartController {
 
     @RequestMapping(value = "/delete", method = {RequestMethod.DELETE, RequestMethod.POST})
     @Operation(summary = "批量删除购物车项")
-    public Result<Void> delete(@RequestBody CartDeleteRequest request) {
+    public Result<Void> delete(@org.springframework.web.bind.annotation.RequestBody CartDeleteRequest request) {
         Long userId = currentUserId();
         if (request != null && request.getIds() != null && !request.getIds().isEmpty()) {
             for (Long id : request.getIds()) {
