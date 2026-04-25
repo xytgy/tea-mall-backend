@@ -64,6 +64,13 @@ public class OrderController {
         return Result.success(null);
     }
 
+    @GetMapping("/detail")
+    @Operation(summary = "获取订单详情")
+    public Result<OrderVO> detail(@RequestParam("orderId") Long orderId) {
+        Long userId = currentUserId();
+        return Result.success(ordersService.getOrderDetail(userId, orderId));
+    }
+
     @GetMapping("/list")
     @Operation(summary = "订单列表")
     @ApiResponses({

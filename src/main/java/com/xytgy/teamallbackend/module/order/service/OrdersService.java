@@ -18,6 +18,7 @@ import java.util.List;
 public interface OrdersService extends IService<Orders> {
     CreateOrderVO createOrder(Long userId, OrderCreateRequest request);
     List<OrderVO> listOrders(Long userId);
+    OrderVO getOrderDetail(Long userId, Long orderId);
     void confirmOrder(Long userId, Long orderId);
     void cancelOrder(Long userId, Long orderId);
     void payOrder(Long userId, OrderPayRequest request);

@@ -117,6 +117,22 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
     }
 
     @Override
+    public OrderVO getOrderDetail(Long userId, Long orderId) {
+        Orders order = this.getById(orderId);
+        if (order == null || !order.getUserId().equals(userId)) {
+            throw new ServiceException(ResultCode.NOT_FOUND, "订单不存在");
+        }
+        
+        List<OrderItem> items = orderItemService.lambdaQuery()
+                .eq(OrderItem::getOrderId, orderId)
+                .list();
+                
+        OrderVO vo = copyMapper.toOrderVO(order, items);
+        vo.setCreateTime(order.getCreateTime() == null ? null : order.getCreateTime().format(TIME_FORMATTER));
+        return vo;
+    }
+
+    @Override
     public List<OrderVO> listOrders(Long userId) {
         List<Orders> orders = lambdaQuery()
                 .eq(Orders::getUserId, userId)

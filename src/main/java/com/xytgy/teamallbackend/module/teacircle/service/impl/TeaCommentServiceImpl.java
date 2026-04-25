@@ -28,14 +28,17 @@ import java.util.stream.Collectors;
 @Service
 public class TeaCommentServiceImpl extends ServiceImpl<TeaCommentMapper, TeaComment> implements TeaCommentService {
 
-    @Autowired
-    private UserService userService;
-    @Autowired
-    private TeaPostService teaPostService;
-    @Autowired
-    private TeaNotificationService teaNotificationService;
+    private final UserService userService;
+    private final TeaPostService teaPostService;
+    private final TeaNotificationService teaNotificationService;
 
     private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+    public TeaCommentServiceImpl(TeaNotificationService teaNotificationService, TeaPostService teaPostService, UserService userService) {
+        this.teaNotificationService = teaNotificationService;
+        this.teaPostService = teaPostService;
+        this.userService = userService;
+    }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -108,6 +111,7 @@ public class TeaCommentServiceImpl extends ServiceImpl<TeaCommentMapper, TeaComm
             vo.setAuthor(author);
         }
 
+        // Set reply to user info if applicable
         if (comment.getReplyToUserId() != null) {
             User target = userService.getById(comment.getReplyToUserId());
             if (target != null) {
