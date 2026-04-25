@@ -14,6 +14,6 @@ public class UserVO {
     private String phone;
     private String email;
     private Integer status;
-    private Integer role; // 返回前端映射后的角色：0用户 1管理员 2商家
+    private Integer role; // 返回前端映射后的角色：0普通买家 1商家 2管理员
     private String createTime;
 }

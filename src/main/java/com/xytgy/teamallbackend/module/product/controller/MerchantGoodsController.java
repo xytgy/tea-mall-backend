@@ -27,7 +27,7 @@ public class MerchantGoodsController {
     @PostMapping("/add")
     public Result<IdVO> add(@RequestBody MerchantGoodsAddRequest request) {
         Long merchantId = currentUserId();
-        requireRole(2);
+        requireRole(1);
         Long id = productService.addMerchantGoods(merchantId, request);
         return Result.success("新商品发布成功", new IdVO(id));
     }

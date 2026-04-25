@@ -119,7 +119,7 @@ public class OrderController {
     @Operation(summary = "商家获取自己的订单列表")
     public Result<List<MerchantOrderVO>> merchantList() {
         Long merchantId = currentUserId();
-        requireRole(2);
+        requireRole(1);
         return Result.success(ordersService.listMerchantOrders(merchantId));
     }
 
@@ -127,7 +127,7 @@ public class OrderController {
     @Operation(summary = "商家对订单进行发货")
     public Result<Void> deliver(@PathVariable Long orderId) {
         Long merchantId = currentUserId();
-        requireRole(2);
+        requireRole(1);
         ordersService.deliverOrder(merchantId, orderId);
         return Result.success(null);
     }

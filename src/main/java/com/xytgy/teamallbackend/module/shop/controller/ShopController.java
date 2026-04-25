@@ -27,7 +27,7 @@ public class ShopController {
     @PostMapping("/register")
     @Operation(summary = "商家入驻/完善信息")
     public Result<Void> register(@Validated @RequestBody ShopRegisterRequest request) {
-        requireRole(2); // 2: 商家
+        requireRole(1); // 1: 商家
         Long userId = UserContext.getCurrentUserId();
         shopService.registerShop(request, userId);
         return Result.success("入驻成功", null);
@@ -36,7 +36,7 @@ public class ShopController {
     @GetMapping("/info")
     @Operation(summary = "获取我的店铺信息")
     public Result<ShopVO> getInfo() {
-        requireRole(2);
+        requireRole(1);
         Long userId = UserContext.getCurrentUserId();
         ShopVO shopVO = shopService.getMyShopInfo(userId);
         return Result.success("获取成功", shopVO);
@@ -45,7 +45,7 @@ public class ShopController {
     @PutMapping("/update")
     @Operation(summary = "修改店铺信息")
     public Result<Void> update(@Validated @RequestBody ShopUpdateRequest request) {
-        requireRole(2);
+        requireRole(1);
         Long userId = UserContext.getCurrentUserId();
         shopService.updateShop(request, userId);
         return Result.success("更新成功", null);

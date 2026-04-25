@@ -31,20 +31,20 @@ public class AdminUserController {
 
     @PostMapping("/add")
     public Result<Void> add(@RequestBody AdminUserAddRequest request) {
-        requireRole(1);
+        requireRole(2);
         userService.addUserByAdmin(request);
         return Result.success(null);
     }
 
     @GetMapping("/list")
     public Result<List<UserVO>> list() {
-        requireRole(1);
+        requireRole(2);
         return Result.success(userService.listUsersByAdmin());
     }
 
     @PutMapping("/status")
     public Result<Void> updateStatus(@RequestBody UserStatusRequest request) {
-        requireRole(1);
+        requireRole(2);
         userService.updateUserStatusByAdmin(request.getId(), request.getStatus());
         return Result.success(null);
     }

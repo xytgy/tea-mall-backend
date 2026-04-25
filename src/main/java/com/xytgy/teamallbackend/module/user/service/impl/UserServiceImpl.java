@@ -127,7 +127,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         claims.put("role", frontendRole);
         
         Long shopId = null;
-        if (frontendRole == 2) { // 商家角色
+        if (frontendRole == 1) { // 商家角色
             shopId = shopService.getShopIdByUserId(user.getId());
             if (shopId != null) {
                 claims.put("shopId", shopId);
@@ -223,21 +223,21 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     }
 
     /**
-     * 前端传参角色约定：0用户 1管理员 2商家
+     * 前端传参角色约定：0普通买家 1商家 2管理员
      * 当前数据库角色约定：0用户 1商家 2管理员
      */
     private Integer toDbRole(Integer requestRole) {
         return switch (requestRole) {
-            case 1 -> 2;
-            case 2 -> 1;
+            case 2 -> 2;
+            case 1 -> 1;
             default -> 0;
         };
     }
 
     private Integer toFrontendRole(Integer dbRole) {
         return switch (dbRole) {
-            case 2 -> 1; // DB Admin(2) -> Frontend Admin(1)
-            case 1 -> 2; // DB Merchant(1) -> Frontend Merchant(2)
+            case 2 -> 2; // DB Admin(2) -> Frontend Admin(2)
+            case 1 -> 1; // DB Merchant(1) -> Frontend Merchant(1)
             default -> 0; // User(0)
         };
     }
@@ -329,7 +329,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         Long shopId = null;
 
         // 如果是商家，查询对应的 shopId
-        if (frontendRole == 2) {
+        if (frontendRole == 1) {
             shopId = shopService.getShopIdByUserId(user.getId());
         }
 
