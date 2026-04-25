@@ -1,11 +1,14 @@
 package com.xytgy.teamallbackend.module.user.controller;
 
 import com.xytgy.teamallbackend.common.Result;
+import com.xytgy.teamallbackend.common.UserContext;
 import com.xytgy.teamallbackend.module.user.service.UserService;
 import com.xytgy.teamallbackend.module.user.vo.LoginResponse;
+import com.xytgy.teamallbackend.module.user.vo.UserInfoVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -25,4 +28,13 @@ public class UserController {
         LoginResponse data = userService.refreshToken(refreshToken);
         return Result.success("刷新成功", data);
     }
+
+    @GetMapping("/info")
+    @Operation(summary = "获取当前用户信息")
+    public Result<UserInfoVO> getUserInfo() {
+        Long userId = UserContext.getCurrentUserId();
+        UserInfoVO userInfo = userService.getUserInfo(userId);
+        return Result.success("获取成功", userInfo);
+    }
 }
+

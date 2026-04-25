@@ -32,6 +32,8 @@ import java.util.concurrent.TimeUnit;
 
 import com.xytgy.teamallbackend.module.shop.service.ShopService;
 
+import com.xytgy.teamallbackend.module.user.vo.UserInfoVO;
+
 /**
 * @author xytgy
 * @description 针对表【user】的数据库操作Service实现
@@ -311,6 +313,37 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         
         // 注意：因为 RefreshToken 是 UUID 作为 key 存的，我们目前没有维护 userId -> refreshToken 的反向映射。
         // 由于只要删除了在线状态 (LOGIN_USER_KEY_PREFIX)，拦截器就会拦截所有请求，达到登出效果。
+    }
+
+    @Override
+    public UserInfoVO getUserInfo(Long id) {
+        if (id == null) {
+            throw new ServiceException(ResultCode.UNAUTHORIZED, "未登录");
+        }
+        User user = this.getById(id);
+        if (user == null || user.getIsDeleted() == 1 || !isUserEnabled(id)) {
+            throw new ServiceException(ResultCode.UNAUTHORIZED, "账号状态异常或已被封禁，请重新登录");
+        }
+
+        Integer frontendRole = toFrontendRole(user.getRole());
+        Long shopId = null;
+
+        // 如果是商家，查询对应的 shopId
+        if (frontendRole == 2) {
+            shopId = shopService.getShopIdByUserId(user.getId());
+        }
+
+        return UserInfoVO.builder()
+                .id(user.getId())
+                .userAccount(user.getUserAccount())
+                .nickname(user.getNickname())
+                .bio("") // TODO: User entity doesn't have a bio field yet, return empty string for now
+                .gender(user.getGender())
+                .phone(user.getPhone())
+                .avatar(user.getAvatar())
+                .role(frontendRole)
+                .shopId(shopId)
+                .build();
     }
 
     private String userStatusKey(Long userId) {

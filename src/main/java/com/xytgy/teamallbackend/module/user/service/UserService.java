@@ -6,6 +6,7 @@ import com.xytgy.teamallbackend.module.user.dto.LoginRequest;
 import com.xytgy.teamallbackend.module.user.dto.RegisterRequest;
 import com.xytgy.teamallbackend.module.user.entity.User;
 import com.xytgy.teamallbackend.module.user.vo.LoginResponse;
+import com.xytgy.teamallbackend.module.user.vo.UserInfoVO;
 import com.xytgy.teamallbackend.module.user.vo.UserVO;
 
 import java.util.List;
@@ -24,4 +25,5 @@ public interface UserService extends IService<User> {
     void updateUserStatusByAdmin(Long id, Integer status);
     boolean isUserEnabled(Long id);
     void logout();
+    UserInfoVO getUserInfo(Long id);
 }
