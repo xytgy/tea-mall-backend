@@ -28,12 +28,12 @@ public class Result<T> implements Serializable {
     @Schema(description = "响应数据（成功时返回具体数据，失败时为null）")//错误信息
     private T data; //数据
 
-    public static <T> Result<T> success(T data) {
-        return build(true, ResultCode.SUCCESS.getCode(), ResultCode.SUCCESS.getMessage(), data);
-    }
-
     public static <T> Result<T> success(String message, T data) {
         return build(true, ResultCode.SUCCESS.getCode(), message, data);
+    }
+
+    public static <T> Result<T> success(T data) {
+        return build(true, ResultCode.SUCCESS.getCode(), "操作成功", data);
     }
 
     public static <T> Result<T> error(Integer code, String message) {

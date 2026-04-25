@@ -346,6 +346,46 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
                 .build();
     }
 
+    @Override
+    public String updateAvatar(Long userId, String avatarBase64) {
+        if (userId == null) {
+            throw new ServiceException(ResultCode.UNAUTHORIZED, "未登录");
+        }
+        User user = this.getById(userId);
+        if (user == null) {
+            throw new ServiceException(ResultCode.NOT_FOUND, "用户不存在");
+        }
+        // TODO: 实际项目中这里应该调用 OSS 服务将 base64 转换为图片链接
+        // 演示环境直接将 base64 或假数据存入
+        String avatarUrl = avatarBase64; 
+        if (avatarBase64 != null && avatarBase64.length() > 500) {
+            // 避免 base64 过长存不进数据库，这里模拟返回一个假 URL
+            avatarUrl = "https://example.com/avatar_mock.jpg";
+        }
+        
+        user.setAvatar(avatarUrl);
+        this.updateById(user);
+        return avatarUrl;
+    }
+
+    @Override
+    public void updateProfile(Long userId, com.xytgy.teamallbackend.module.user.dto.UserProfileUpdateRequest request) {
+        if (userId == null) {
+            throw new ServiceException(ResultCode.UNAUTHORIZED, "未登录");
+        }
+        User user = this.getById(userId);
+        if (user == null) {
+            throw new ServiceException(ResultCode.NOT_FOUND, "用户不存在");
+        }
+        
+        if (request.getNickname() != null) user.setNickname(request.getNickname());
+        if (request.getGender() != null) user.setGender(request.getGender());
+        if (request.getPhone() != null) user.setPhone(request.getPhone());
+        // User 表目前没有 bio 字段，如果有需要可以后续在 DB 中加字段。暂不处理 bio。
+
+        this.updateById(user);
+    }
+
     private String userStatusKey(Long userId) {
         return USER_STATUS_KEY_PREFIX + userId;
     }

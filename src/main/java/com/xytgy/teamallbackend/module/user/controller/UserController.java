@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -35,6 +36,23 @@ public class UserController {
         Long userId = UserContext.getCurrentUserId();
         UserInfoVO userInfo = userService.getUserInfo(userId);
         return Result.success("获取成功", userInfo);
+    }
+
+    @PostMapping("/avatar")
+    @Operation(summary = "更新用户头像")
+    public Result<String> updateAvatar(@RequestBody java.util.Map<String, String> body) {
+        Long userId = UserContext.getCurrentUserId();
+        String avatarBase64 = body.get("avatarBase64");
+        String avatarUrl = userService.updateAvatar(userId, avatarBase64);
+        return Result.success("更新成功", avatarUrl);
+    }
+
+    @PostMapping("/profile")
+    @Operation(summary = "更新个人资料")
+    public Result<UserInfoVO> updateProfile(@RequestBody com.xytgy.teamallbackend.module.user.dto.UserProfileUpdateRequest request) {
+        Long userId = UserContext.getCurrentUserId();
+        userService.updateProfile(userId, request);
+        return Result.success("更新成功", userService.getUserInfo(userId));
     }
 }
 

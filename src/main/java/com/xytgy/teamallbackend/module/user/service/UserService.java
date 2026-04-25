@@ -26,4 +26,6 @@ public interface UserService extends IService<User> {
     boolean isUserEnabled(Long id);
     void logout();
     UserInfoVO getUserInfo(Long id);
+    String updateAvatar(Long userId, String avatarBase64);
+    void updateProfile(Long userId, com.xytgy.teamallbackend.module.user.dto.UserProfileUpdateRequest request);
 }
