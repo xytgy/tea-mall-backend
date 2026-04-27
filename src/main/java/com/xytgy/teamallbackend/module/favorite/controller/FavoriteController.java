@@ -28,6 +28,16 @@ public class FavoriteController {
     @Autowired
     private FavoriteService favoriteService;
 
+    @GetMapping("/list")
+    @Operation(summary = "获取收藏列表")
+    public Result<java.util.List<com.xytgy.teamallbackend.module.favorite.vo.FavoriteItemVO>> listFavorites() {
+        Long userId = UserContext.getCurrentUserId();
+        if (userId == null) {
+            throw new ServiceException(ResultCode.UNAUTHORIZED, "未登录");
+        }
+        return Result.success(favoriteService.listFavorites(userId));
+    }
+
     @PostMapping("/add")
     @Operation(summary = "添加商品到收藏")
     public Result<Void> addFavorite(@Validated @RequestBody FavoriteAddRequest request) {
@@ -60,4 +70,5 @@ public class FavoriteController {
         boolean isFavorited = favoriteService.checkFavorite(userId, productId);
         return Result.success(isFavorited);
     }
+    
 }

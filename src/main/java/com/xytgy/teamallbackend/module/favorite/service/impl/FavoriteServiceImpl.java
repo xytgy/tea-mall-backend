@@ -7,10 +7,17 @@ import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.module.favorite.entity.Favorite;
 import com.xytgy.teamallbackend.module.favorite.repository.FavoriteMapper;
 import com.xytgy.teamallbackend.module.favorite.service.FavoriteService;
+import com.xytgy.teamallbackend.module.favorite.vo.FavoriteItemVO;
 import com.xytgy.teamallbackend.module.product.entity.Product;
 import com.xytgy.teamallbackend.module.product.service.ProductService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 public class FavoriteServiceImpl extends ServiceImpl<FavoriteMapper, Favorite> implements FavoriteService {
@@ -20,6 +27,39 @@ public class FavoriteServiceImpl extends ServiceImpl<FavoriteMapper, Favorite> i
 
     @Autowired
     private CopyMapper copyMapper;
+
+    @Override
+    public List<FavoriteItemVO> listFavorites(Long userId) {
+        if (userId == null) {
+            throw new ServiceException(ResultCode.UNAUTHORIZED, "未登录");
+        }
+        
+        List<Favorite> favorites = lambdaQuery()
+                .eq(Favorite::getUserId, userId)
+                .orderByDesc(Favorite::getCreateTime)
+                .list();
+                
+        if (favorites.isEmpty()) {
+            return Collections.emptyList();
+        }
+        
+        Set<Long> productIds = favorites.stream().map(Favorite::getProductId).collect(Collectors.toSet());
+        Map<Long, Product> productMap = productService.listByIds(productIds).stream()
+                .collect(Collectors.toMap(Product::getId, p -> p));
+                
+        return favorites.stream().map(f -> {
+            Product p = productMap.get(f.getProductId());
+            FavoriteItemVO vo = new FavoriteItemVO();
+            vo.setId(f.getId());
+            vo.setProductId(f.getProductId());
+            if (p != null) {
+                vo.setName(p.getName());
+                vo.setPrice(p.getPrice());
+                vo.setImageUrl(p.getImageUrl());
+            }
+            return vo;
+        }).collect(Collectors.toList());
+    }
 
     @Override
     public void addFavorite(Long userId, Long productId) {
