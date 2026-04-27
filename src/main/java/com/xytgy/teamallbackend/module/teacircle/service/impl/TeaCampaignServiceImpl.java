@@ -25,6 +25,7 @@ public class TeaCampaignServiceImpl extends ServiceImpl<TeaCampaignMapper, TeaCa
 
         TeaCampaignVO vo = new TeaCampaignVO();
         BeanUtils.copyProperties(campaign, vo);
+        vo.setId(String.valueOf(campaign.getId()));
         return vo;
     }
 }

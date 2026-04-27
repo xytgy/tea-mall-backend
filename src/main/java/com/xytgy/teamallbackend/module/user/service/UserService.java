@@ -28,4 +28,5 @@ public interface UserService extends IService<User> {
     UserInfoVO getUserInfo(Long id);
     String updateAvatar(Long userId, String avatarBase64);
     void updateProfile(Long userId, com.xytgy.teamallbackend.module.user.dto.UserProfileUpdateRequest request);
+    com.xytgy.teamallbackend.module.user.vo.UserOverviewStatsVO getUserOverviewStats(Long userId);
 }

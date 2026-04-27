@@ -13,8 +13,8 @@ public class TeaTopic {
     private Long id;
     private String title;
     private String description;
-    private Integer participantsCount;
-    private Integer postsCount;
-    private Integer status;
+    private String viewCount;
+    private Integer postCount;
+    private Boolean isHot;
     private LocalDateTime createTime;
 }

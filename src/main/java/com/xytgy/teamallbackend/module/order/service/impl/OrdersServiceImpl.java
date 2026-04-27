@@ -368,7 +368,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
                 case 0 -> stats.setUnpaid(count);
                 case 1 -> stats.setPacking(count);
                 case 2 -> stats.setDelivering(count);
-                case 4 -> stats.setReviewing(count);
+                case 3 -> stats.setReviewing(count); // 修复 Bug：待评价订单的状态为 3
             }
         }
         return stats;
@@ -452,12 +452,17 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
             throw new ServiceException(ResultCode.BAD_REQUEST, "订单状态不正确，无法同意退款");
         }
         
-        // 模拟调用微信/支付宝等支付网关执行原路退回逻辑
-        // ...
-
-        // 更新订单状态为已退款(7)
-        order.setStatus(7);
-        updateById(order);
+        // 并发控制：使用带状态条件的 update
+        boolean updated = lambdaUpdate()
+                .set(Orders::getStatus, 7)
+                .set(Orders::getRefusalReason, null) // 清空可能的拒绝原因
+                .eq(Orders::getId, order.getId())
+                .eq(Orders::getStatus, 6)
+                .update();
+                
+        if (!updated) {
+            throw new ServiceException(ResultCode.BAD_REQUEST, "操作失败，订单状态已发生改变");
+        }
         
         // 如果需要，可以在这里增加库存恢复逻辑
     }
@@ -472,10 +477,17 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
             throw new ServiceException(ResultCode.BAD_REQUEST, "订单状态不正确，无法拒绝退款");
         }
 
-        // 更新订单状态为已拒绝退款(8)，并记录拒绝原因
-        order.setStatus(8);
-        order.setRefusalReason(reason);
-        updateById(order);
+        // 并发控制：使用带状态条件的 update
+        boolean updated = lambdaUpdate()
+                .set(Orders::getStatus, 8)
+                .set(Orders::getRefusalReason, reason)
+                .eq(Orders::getId, order.getId())
+                .eq(Orders::getStatus, 6)
+                .update();
+                
+        if (!updated) {
+            throw new ServiceException(ResultCode.BAD_REQUEST, "操作失败，订单状态已发生改变");
+        }
     }
 
     private Orders getMerchantOrder(Long merchantId, Long orderId) {

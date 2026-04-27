@@ -24,13 +24,13 @@ public class TeaTopicServiceImpl extends ServiceImpl<TeaTopicMapper, TeaTopic> i
     public PageResult<TeaTopicVO> getTopics(int page, int pageSize) {
         Page<TeaTopic> p = new Page<>(page, pageSize);
         this.page(p, new LambdaQueryWrapper<TeaTopic>()
-                .eq(TeaTopic::getStatus, 1)
-                .orderByDesc(TeaTopic::getParticipantsCount));
+                .orderByDesc(TeaTopic::getIsHot)
+                .orderByDesc(TeaTopic::getCreateTime));
 
         List<TeaTopicVO> list = p.getRecords().stream().map(t -> {
             TeaTopicVO vo = new TeaTopicVO();
             BeanUtils.copyProperties(t, vo);
-            vo.setCreateTime(t.getCreateTime() != null ? t.getCreateTime().format(FORMATTER) : null);
+            vo.setId(String.valueOf(t.getId()));
             return vo;
         }).collect(Collectors.toList());
 

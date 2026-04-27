@@ -4,10 +4,10 @@ import lombok.Data;
 
 @Data
 public class TeaTopicVO {
-    private Long id;
+    private String id;
     private String title;
     private String description;
-    private Integer participantsCount;
-    private Integer postsCount;
-    private String createTime;
+    private String viewCount;
+    private Integer postCount;
+    private Boolean isHot;
 }

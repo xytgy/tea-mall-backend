@@ -1,30 +1,35 @@
+-- 1. 话题表 (Tea Topic)
 CREATE TABLE `tea_topic` (
   `id` BIGINT NOT NULL AUTO_INCREMENT,
-  `title` VARCHAR(100) NOT NULL COMMENT '话题标题，如 #春茶尝鲜#',
-  `description` VARCHAR(255) DEFAULT NULL COMMENT '话题描述',
-  `participants_count` INT NOT NULL DEFAULT 0 COMMENT '参与人数统计',
-  `posts_count` INT NOT NULL DEFAULT 0 COMMENT '相关动态数统计',
-  `status` TINYINT NOT NULL DEFAULT 1 COMMENT '状态 (1:正常, 0:停用)',
+  `title` VARCHAR(100) NOT NULL COMMENT '话题标题，例如：#春茶尝鲜',
+  `description` VARCHAR(255) DEFAULT NULL COMMENT '话题简介',
+  `view_count` VARCHAR(50) NOT NULL DEFAULT '0' COMMENT '围观人数(字符串或数字皆可，前端显示为 12.5w 形式)',
+  `post_count` INT NOT NULL DEFAULT 0 COMMENT '该话题下的讨论动态数',
+  `is_hot` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否热门话题 (1:热门, 0:普通)',
   `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_title` (`title`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='茶友圈话题表';
 
+-- 2. 活动横幅表 (Tea Campaign)
 CREATE TABLE `tea_campaign` (
   `id` BIGINT NOT NULL AUTO_INCREMENT,
   `title` VARCHAR(100) NOT NULL COMMENT '活动标题',
-  `cover` VARCHAR(255) NOT NULL COMMENT '活动封面图片URL',
-  `description` VARCHAR(255) DEFAULT NULL COMMENT '活动简述',
-  `link` VARCHAR(255) DEFAULT NULL COMMENT '活动跳转链接',
-  `status` TINYINT NOT NULL DEFAULT 1 COMMENT '状态 (1:进行中, 0:已结束)',
+  `cover` VARCHAR(255) NOT NULL COMMENT '活动封面图 URL',
+  `description` VARCHAR(255) DEFAULT NULL COMMENT '活动描述',
+  `link` VARCHAR(255) DEFAULT NULL COMMENT '点击跳转的活动详情页 URL（选填）',
+  `status` TINYINT NOT NULL DEFAULT 1 COMMENT '状态 (1:进行中, 0:已结束/停用)',
   `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='茶友圈活动横幅表';
 
--- 插入一些初始数据
-INSERT INTO `tea_topic` (`title`, `description`, `participants_count`, `posts_count`, `status`) VALUES
-('#春茶尝鲜#', '分享你的第一口春茶体验', 12500, 4580, 1),
-('#紫砂壶交流#', '晒出你心爱的紫砂壶', 8300, 2100, 1),
-('#岩骨花香#', '武夷岩茶爱好者聚集地', 6200, 1850, 1);
+-- 插入一些初始化测试数据
+INSERT INTO `tea_topic` (`title`, `description`, `view_count`, `post_count`, `is_hot`) VALUES
+('#春茶品鉴', '春日游，杏花吹满头。在这个万物复苏的季节，一起来分享你的第一口春茶吧。', '12.5w', 342, 1),
+('#紫砂壶', '泥绘春秋，壶中日月。紫砂壶的养护、鉴赏与交流。', '8.2w', 156, 1),
+('#茶山游', '寻味山野，探访名山名枞。分享你的茶山行记与见闻。', '4.5w', 89, 0),
+('#明前龙井', '明前茶，贵如金。西湖龙井的核心产区探秘与品鉴心得。', '15.8w', 512, 1),
+('#武夷岩茶', '岩骨花香，半壁江山。肉桂、水仙、大红袍的冲泡与品鉴。', '6.7w', 120, 0);
 
-INSERT INTO `tea_campaign` (`title`, `cover`, `description`, `link`, `status`) VALUES
-('2026 春茶品鉴会报名中', 'https://images.unsplash.com/photo-1594631252845-29fc4cc8c0a1?ixlib=rb-4.0.3&auto=format&fit=crop&w=1000&q=80', '寻味山野，共品春光。名额有限，先到先得。', '/campaigns/1', 1);
+INSERT INTO `tea_campaign` (`title`, `cover`, `description`, `status`) VALUES
+('2026 春茶品鉴会报名中', 'https://coresg-normal.trae.ai/api/ide/v1/text_to_image?prompt=An%20elegant%20spring%20tea%20tasting%20event%20banner%2C%20serene%20tea%20ceremony%2C%20blooming%20spring%20flowers%2C%20beautiful%20tea%20sets%2C%20bright%20and%20inviting%2C%20aesthetic%20composition&image_size=landscape_16_9', '寻味山野，共品春光。名额有限，先到先得。', 1);

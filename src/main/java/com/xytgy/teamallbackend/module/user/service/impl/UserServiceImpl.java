@@ -12,7 +12,14 @@ import com.xytgy.teamallbackend.module.user.service.UserService;
 import com.xytgy.teamallbackend.utils.JwtUtils;
 import com.xytgy.teamallbackend.utils.PasswordUtil;
 import com.xytgy.teamallbackend.module.user.vo.LoginResponse;
+import com.xytgy.teamallbackend.module.user.vo.UserOverviewStatsVO;
 import com.xytgy.teamallbackend.module.user.vo.UserVO;
+import com.xytgy.teamallbackend.module.favorite.service.FavoriteService;
+import com.xytgy.teamallbackend.module.order.service.OrdersService;
+import com.xytgy.teamallbackend.module.support.service.SupportService;
+import com.xytgy.teamallbackend.module.favorite.entity.Favorite;
+import com.xytgy.teamallbackend.module.order.entity.Orders;
+import com.xytgy.teamallbackend.module.support.entity.SupportTicket;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import com.xytgy.teamallbackend.module.user.dto.LoginRequest;
@@ -60,6 +67,15 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
 
     @Autowired
     private AliyunOssUtil aliyunOssUtil;
+
+    @Autowired
+    private FavoriteService favoriteService;
+
+    @Autowired
+    private OrdersService ordersService;
+
+    @Autowired
+    private SupportService supportService;
 
     @Override
     public LoginResponse login(LoginRequest request) {
@@ -448,5 +464,27 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         } catch (Exception ignored) {
             // Redis 故障时不影响主流程
         }
+    }
+
+    @Override
+    public UserOverviewStatsVO getUserOverviewStats(Long userId) {
+        long favoritesCount = favoriteService.lambdaQuery()
+                .eq(Favorite::getUserId, userId)
+                .count();
+
+        long ordersCount = ordersService.lambdaQuery()
+                .eq(Orders::getUserId, userId)
+                .ne(Orders::getStatus, 4) // 这里排除了“已取消(4)”状态的订单，按需调整
+                .count();
+
+        long consultsCount = supportService.lambdaQuery()
+                .eq(SupportTicket::getUserId, userId)
+                .count();
+
+        return UserOverviewStatsVO.builder()
+                .favorites((int) favoritesCount)
+                .orders((int) ordersCount)
+                .consults((int) consultsCount)
+                .build();
     }
 }

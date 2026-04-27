@@ -1,6 +1,8 @@
 package com.xytgy.teamallbackend.module.user.controller;
 
 import com.xytgy.teamallbackend.common.Result;
+import com.xytgy.teamallbackend.common.ResultCode;
+import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.common.UserContext;
 import com.xytgy.teamallbackend.module.user.service.UserService;
 import com.xytgy.teamallbackend.module.user.vo.LoginResponse;
@@ -28,6 +30,16 @@ public class UserController {
     public Result<LoginResponse> refreshToken(@RequestParam("refreshToken") String refreshToken) {
         LoginResponse data = userService.refreshToken(refreshToken);
         return Result.success("刷新成功", data);
+    }
+
+    @GetMapping("/stats")
+    @Operation(summary = "获取用户总览统计数据")
+    public Result<com.xytgy.teamallbackend.module.user.vo.UserOverviewStatsVO> getUserStats() {
+        Long userId = UserContext.getCurrentUserId();
+        if (userId == null) {
+            throw new ServiceException(ResultCode.UNAUTHORIZED, "未登录");
+        }
+        return Result.success("获取成功", userService.getUserOverviewStats(userId));
     }
 
     @GetMapping("/info")
