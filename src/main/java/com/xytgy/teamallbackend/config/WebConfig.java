@@ -28,6 +28,7 @@ public class WebConfig implements WebMvcConfigurer {
                         "/api/store/**",
                         "/api/tea-circle/topics",
                         "/api/tea-circle/campaigns/latest",
+                        "/api/feedback/submit",
                         "/v3/api-docs/**",
                         "/swagger-ui/**",
                         "/swagger-ui.html",
