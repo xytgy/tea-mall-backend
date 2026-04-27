@@ -1,16 +1,28 @@
 package com.xytgy.teamallbackend.module.feedback.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.xytgy.teamallbackend.common.ResultCode;
 import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.module.feedback.dto.FeedbackSubmitRequest;
 import com.xytgy.teamallbackend.module.feedback.entity.Feedback;
 import com.xytgy.teamallbackend.module.feedback.repository.FeedbackMapper;
 import com.xytgy.teamallbackend.module.feedback.service.FeedbackService;
+import com.xytgy.teamallbackend.module.feedback.vo.FeedbackVO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
+
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 public class FeedbackServiceImpl extends ServiceImpl<FeedbackMapper, Feedback> implements FeedbackService {
@@ -41,5 +53,60 @@ public class FeedbackServiceImpl extends ServiceImpl<FeedbackMapper, Feedback> i
         }
 
         this.save(feedback);
+    }
+
+    @Override
+    public Map<String, Object> listFeedback(Integer page, Integer pageSize, Integer status, String type) {
+        Page<Feedback> pageParam = new Page<>(page != null ? page : 1, pageSize != null ? pageSize : 10);
+        QueryWrapper<Feedback> queryWrapper = new QueryWrapper<>();
+        
+        if (status != null) {
+            queryWrapper.eq("status", status);
+        }
+        if (StringUtils.hasText(type)) {
+            queryWrapper.eq("type", type);
+        }
+        queryWrapper.orderByDesc("create_time");
+
+        Page<Feedback> feedbackPage = this.page(pageParam, queryWrapper);
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+        List<FeedbackVO> voList = feedbackPage.getRecords().stream().map(f -> {
+            List<String> imageList = new ArrayList<>();
+            if (StringUtils.hasText(f.getImages()) && !f.getImages().equals("[]")) {
+                try {
+                    imageList = objectMapper.readValue(f.getImages(), new TypeReference<List<String>>() {});
+                } catch (JsonProcessingException ignored) {}
+            }
+            
+            return FeedbackVO.builder()
+                    .id(f.getId())
+                    .userId(f.getUserId())
+                    .type(f.getType())
+                    .content(f.getContent())
+                    .images(imageList)
+                    .contact(f.getContact())
+                    .status(f.getStatus())
+                    .createTime(f.getCreateTime() != null ? f.getCreateTime().format(formatter) : null)
+                    .build();
+        }).collect(Collectors.toList());
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("total", feedbackPage.getTotal());
+        result.put("list", voList);
+        return result;
+    }
+
+    @Override
+    public void updateStatus(Long id, Integer status) {
+        if (id == null || status == null) {
+            throw new ServiceException(ResultCode.BAD_REQUEST, "参数不完整");
+        }
+        Feedback feedback = this.getById(id);
+        if (feedback == null) {
+            throw new ServiceException(ResultCode.NOT_FOUND, "反馈记录不存在");
+        }
+        feedback.setStatus(status);
+        this.updateById(feedback);
     }
 }

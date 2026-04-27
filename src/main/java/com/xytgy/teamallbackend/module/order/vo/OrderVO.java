@@ -17,5 +17,6 @@ public class OrderVO {
     private String receiverPhone;
     private String receiverAddress;
     private String createTime;
+    private String refusalReason;
     private List<OrderItemVO> items;
 }

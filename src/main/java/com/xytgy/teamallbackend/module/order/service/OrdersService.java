@@ -3,8 +3,10 @@ package com.xytgy.teamallbackend.module.order.service;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.xytgy.teamallbackend.module.order.dto.OrderCreateRequest;
 import com.xytgy.teamallbackend.module.order.dto.OrderPayRequest;
+import com.xytgy.teamallbackend.module.order.dto.OrderReviewRequest;
 import com.xytgy.teamallbackend.module.order.entity.Orders;
 import com.xytgy.teamallbackend.module.order.vo.CreateOrderVO;
+import com.xytgy.teamallbackend.module.order.vo.LogisticsVO;
 import com.xytgy.teamallbackend.module.order.vo.MerchantOrderVO;
 import com.xytgy.teamallbackend.module.order.vo.OrderStatsVO;
 import com.xytgy.teamallbackend.module.order.vo.OrderVO;
@@ -23,8 +25,14 @@ public interface OrdersService extends IService<Orders> {
     void confirmOrder(Long userId, Long orderId);
     void cancelOrder(Long userId, Long orderId);
     void payOrder(Long userId, OrderPayRequest request);
+    void applyRefund(Long userId, Long orderId);
+    void submitReview(Long userId, OrderReviewRequest request);
     
     List<MerchantOrderVO> listMerchantOrders(Long merchantId);
     void deliverOrder(Long merchantId, Long orderId);
     OrderStatsVO getOrderStats(Long userId);
+    List<LogisticsVO> getOrderLogistics(Long userId, Long orderId);
+    
+    void approveRefund(Long merchantId, Long orderId);
+    void refuseRefund(Long merchantId, Long orderId, String reason);
 }

@@ -1,0 +1,1 @@
+ALTER TABLE `orders` ADD COLUMN `refusal_reason` varchar(255) DEFAULT NULL COMMENT '商家拒绝退款原因';

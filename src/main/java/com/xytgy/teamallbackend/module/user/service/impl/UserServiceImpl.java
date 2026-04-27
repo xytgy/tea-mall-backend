@@ -22,13 +22,16 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import com.xytgy.teamallbackend.common.UserContext;
 import java.time.format.DateTimeFormatter;
+import com.xytgy.teamallbackend.utils.AliyunOssUtil;
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
-
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 import com.xytgy.teamallbackend.module.shop.service.ShopService;
 
@@ -54,6 +57,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     private CopyMapper copyMapper;
     @Autowired
     private ShopService shopService;
+
+    @Autowired
+    private AliyunOssUtil aliyunOssUtil;
 
     @Override
     public LoginResponse login(LoginRequest request) {
@@ -355,17 +361,60 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         if (user == null) {
             throw new ServiceException(ResultCode.NOT_FOUND, "用户不存在");
         }
-        // TODO: 实际项目中这里应该调用 OSS 服务将 base64 转换为图片链接
-        // 演示环境直接将 base64 或假数据存入
-        String avatarUrl = avatarBase64; 
-        if (avatarBase64 != null && avatarBase64.length() > 500) {
-            // 避免 base64 过长存不进数据库，这里模拟返回一个假 URL
-            avatarUrl = "https://example.com/avatar_mock.jpg";
+        
+        if (!StringUtils.hasText(avatarBase64)) {
+            throw new ServiceException(ResultCode.BAD_REQUEST, "图片数据为空");
         }
         
-        user.setAvatar(avatarUrl);
-        this.updateById(user);
-        return avatarUrl;
+        // 解析 Base64，移除前缀如 "data:image/png;base64,"
+        String base64Data = avatarBase64;
+        String extension = ".png"; // 默认扩展名
+        
+        if (avatarBase64.contains(",")) {
+            String[] parts = avatarBase64.split(",");
+            if (parts.length == 2) {
+                // 尝试提取扩展名
+                String header = parts[0];
+                if (header.contains("image/jpeg") || header.contains("image/jpg")) {
+                    extension = ".jpg";
+                } else if (header.contains("image/gif")) {
+                    extension = ".gif";
+                } else if (header.contains("image/webp")) {
+                    extension = ".webp";
+                }
+                base64Data = parts[1];
+            }
+        }
+        
+        try {
+            // 解码 base64
+            byte[] decodedBytes = Base64.getDecoder().decode(base64Data);
+            
+            // 大小限制 (如 2MB = 2 * 1024 * 1024 bytes)
+            if (decodedBytes.length > 2 * 1024 * 1024) {
+                throw new ServiceException(ResultCode.BAD_REQUEST, "图片过大，请上传小于2MB的图片");
+            }
+            
+            // 使用 ByteArrayInputStream 包装字节数组
+            try (InputStream inputStream = new ByteArrayInputStream(decodedBytes)) {
+                // 生成临时文件名（带扩展名）用于 OSS 上传
+                String fileName = "avatar_" + userId + extension;
+                
+                // 调用 OSS 工具类上传文件，并获取可访问的 URL
+                String avatarUrl = aliyunOssUtil.upload(inputStream, fileName);
+                
+                // 更新数据库
+                user.setAvatar(avatarUrl);
+                this.updateById(user);
+                
+                return avatarUrl;
+            }
+            
+        } catch (IllegalArgumentException e) {
+            throw new ServiceException(ResultCode.BAD_REQUEST, "图片格式错误，无法解析");
+        } catch (Exception e) {
+            throw new ServiceException(ResultCode.BAD_REQUEST, "头像上传失败: " + e.getMessage());
+        }
     }
 
     @Override

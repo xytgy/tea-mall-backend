@@ -5,6 +5,9 @@ import com.xytgy.teamallbackend.common.ResultCode;
 import com.xytgy.teamallbackend.common.mapstruct.CopyMapper;
 import com.xytgy.teamallbackend.module.order.dto.OrderCreateRequest;
 import com.xytgy.teamallbackend.module.order.dto.OrderPayRequest;
+import com.xytgy.teamallbackend.module.order.dto.OrderReviewRequest;
+import com.xytgy.teamallbackend.module.product.entity.ProductReview;
+import com.xytgy.teamallbackend.module.product.repository.ProductReviewMapper;
 import com.xytgy.teamallbackend.module.order.entity.OrderItem;
 import com.xytgy.teamallbackend.module.order.entity.Orders;
 import com.xytgy.teamallbackend.module.product.entity.Product;
@@ -15,6 +18,7 @@ import com.xytgy.teamallbackend.module.order.service.OrderItemService;
 import com.xytgy.teamallbackend.module.order.service.OrdersService;
 import com.xytgy.teamallbackend.module.product.service.ProductService;
 import com.xytgy.teamallbackend.module.order.vo.CreateOrderVO;
+import com.xytgy.teamallbackend.module.order.vo.LogisticsVO;
 import com.xytgy.teamallbackend.module.order.vo.MerchantOrderVO;
 import com.xytgy.teamallbackend.module.order.vo.OrderItemVO;
 import com.xytgy.teamallbackend.module.order.vo.OrderVO;
@@ -46,6 +50,9 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
     
     @Autowired
     private CopyMapper copyMapper;
+    
+    @Autowired
+    private ProductReviewMapper productReviewMapper;
 
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -213,6 +220,52 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
     }
 
     @Override
+    public void applyRefund(Long userId, Long orderId) {
+        Orders order = getUserOrder(userId, orderId);
+        if (!Objects.equals(order.getStatus(), 1)) { // 1为已支付(待发货)
+            throw new ServiceException(ResultCode.BAD_REQUEST, "仅已支付待发货的订单可申请退款");
+        }
+        
+        // 修改为退款中状态(6)
+        order.setStatus(6);
+        updateById(order);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void submitReview(Long userId, OrderReviewRequest request) {
+        if (request == null || request.getOrderId() == null || request.getProductId() == null) {
+            throw new ServiceException(ResultCode.BAD_REQUEST, "参数不完整");
+        }
+        if (request.getRating() == null || request.getRating() < 1 || request.getRating() > 5) {
+            throw new ServiceException(ResultCode.BAD_REQUEST, "评分必须在1-5之间");
+        }
+        if (!StringUtils.hasText(request.getContent()) || request.getContent().trim().length() < 5) {
+            throw new ServiceException(ResultCode.BAD_REQUEST, "评价内容不能少于5个字符");
+        }
+
+        Orders order = getUserOrder(userId, request.getOrderId());
+        if (!Objects.equals(order.getStatus(), 3)) { // 3为已完成(待评价)
+            throw new ServiceException(ResultCode.BAD_REQUEST, "订单未完成或已评价");
+        }
+
+        // 保存评价
+        ProductReview review = new ProductReview();
+        review.setProductId(request.getProductId());
+        review.setUserId(userId);
+        review.setRating(request.getRating());
+        review.setContent(request.getContent().trim());
+        // 如果有图片字段，可以转为 JSON 存入，目前表结构暂无 images 字段，可忽略或补充
+        productReviewMapper.insert(review);
+
+        // 修改订单状态为已评价(4 或 其他约定值，根据注释：4为已取消/已评价，视具体业务而定，假设已评价保持不变或新状态)
+        // 假设需求说改状态为 4，但原设计4是已取消。
+        // 为了防冲突，假设评价后订单状态更新为 5（已评价），或者业务逻辑默认已完成的订单通过某个标记区分
+        // 这里按你文档里的说法：更改订单状态为 `4` (已评价)
+        order.setStatus(4); 
+        updateById(order);
+    }
+    @Override
     public List<MerchantOrderVO> listMerchantOrders(Long merchantId) {
         // 1. 获取该商家的所有商品
         List<Product> products = productService.lambdaQuery()
@@ -242,9 +295,14 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
                 .in(Orders::getId, orderIds)
                 .orderByDesc(Orders::getCreateTime)
                 .list();
+                
+        // 获取订单与商品明细的映射关系
+        Map<Long, List<OrderItem>> orderItemMap = orderItems.stream()
+                .collect(Collectors.groupingBy(OrderItem::getOrderId));
 
         return orders.stream().map(order -> {
-            MerchantOrderVO vo = copyMapper.toMerchantOrderVO(order);
+            List<OrderItem> itemsForOrder = orderItemMap.getOrDefault(order.getId(), Collections.emptyList());
+            MerchantOrderVO vo = copyMapper.toMerchantOrderVO(order, itemsForOrder);
             vo.setCreateTime(order.getCreateTime() == null ? null : order.getCreateTime().format(TIME_FORMATTER));
             return vo;
         }).collect(Collectors.toList());
@@ -316,6 +374,58 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         return stats;
     }
 
+    @Override
+    public List<LogisticsVO> getOrderLogistics(Long userId, Long orderId) {
+        Orders order = getUserOrder(userId, orderId);
+        
+        // 只有已发货(2)、已完成(3)的订单才有物流信息
+        if (order.getStatus() < 2 && order.getStatus() != 4) {
+            throw new ServiceException(ResultCode.NOT_FOUND, "订单暂无物流信息");
+        }
+        
+        List<LogisticsVO> logisticsList = new ArrayList<>();
+        
+        // 模拟物流轨迹（倒序排列：最新的在最前面）
+        // 假设基于支付时间或创建时间往后推演几个小时作为物流时间
+        java.time.LocalDateTime updateTime = order.getPayTime() != null 
+            ? order.getPayTime() 
+            : order.getCreateTime();
+            
+        if (order.getStatus() == 3 || order.getStatus() == 4) {
+            logisticsList.add(LogisticsVO.builder()
+                .content("包裹已签收，签收人：本人签收。感谢您使用顺丰速运，期待再次为您服务。")
+                .time(updateTime.plusHours(48).format(TIME_FORMATTER))
+                .build());
+        }
+        
+        logisticsList.add(LogisticsVO.builder()
+            .content("派件中，派件员正在为您派送。派件员电话：13800000000")
+            .time(updateTime.plusHours(42).format(TIME_FORMATTER))
+            .build());
+            
+        logisticsList.add(LogisticsVO.builder()
+            .content("快件已到达【杭州市西湖区集散中心】")
+            .time(updateTime.plusHours(36).format(TIME_FORMATTER))
+            .build());
+            
+        logisticsList.add(LogisticsVO.builder()
+            .content("快件已发往【杭州市西湖区集散中心】")
+            .time(updateTime.plusHours(24).format(TIME_FORMATTER))
+            .build());
+            
+        logisticsList.add(LogisticsVO.builder()
+            .content("顺丰速运 已收取快件")
+            .time(updateTime.plusHours(12).format(TIME_FORMATTER))
+            .build());
+            
+        logisticsList.add(LogisticsVO.builder()
+            .content("商家已发货，等待快递揽收")
+            .time(updateTime.format(TIME_FORMATTER))
+            .build());
+            
+        return logisticsList;
+    }
+
     private Orders getUserOrder(Long userId, Long orderId) {
         if (orderId == null) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "订单ID不能为空");
@@ -332,6 +442,70 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
 
     private String generateOrderNo(Long userId) {
         return "T" + System.currentTimeMillis() + userId + (int) (Math.random() * 1000);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void approveRefund(Long merchantId, Long orderId) {
+        Orders order = getMerchantOrder(merchantId, orderId);
+        if (!Objects.equals(order.getStatus(), 6)) { // 6为退款申请中
+            throw new ServiceException(ResultCode.BAD_REQUEST, "订单状态不正确，无法同意退款");
+        }
+        
+        // 模拟调用微信/支付宝等支付网关执行原路退回逻辑
+        // ...
+
+        // 更新订单状态为已退款(7)
+        order.setStatus(7);
+        updateById(order);
+        
+        // 如果需要，可以在这里增加库存恢复逻辑
+    }
+
+    @Override
+    public void refuseRefund(Long merchantId, Long orderId, String reason) {
+        if (!StringUtils.hasText(reason)) {
+            throw new ServiceException(ResultCode.BAD_REQUEST, "拒绝原因不能为空");
+        }
+        Orders order = getMerchantOrder(merchantId, orderId);
+        if (!Objects.equals(order.getStatus(), 6)) { // 6为退款申请中
+            throw new ServiceException(ResultCode.BAD_REQUEST, "订单状态不正确，无法拒绝退款");
+        }
+
+        // 更新订单状态为已拒绝退款(8)，并记录拒绝原因
+        order.setStatus(8);
+        order.setRefusalReason(reason);
+        updateById(order);
+    }
+
+    private Orders getMerchantOrder(Long merchantId, Long orderId) {
+        if (orderId == null) {
+            throw new ServiceException(ResultCode.BAD_REQUEST, "订单ID不能为空");
+        }
+        Orders order = getById(orderId);
+        if (order == null) {
+            throw new ServiceException(ResultCode.NOT_FOUND, "订单不存在");
+        }
+
+        // 校验该订单是否包含该商家的商品
+        List<OrderItem> items = orderItemService.lambdaQuery()
+                .eq(OrderItem::getOrderId, orderId)
+                .list();
+        if (items.isEmpty()) {
+            throw new ServiceException(ResultCode.NOT_FOUND, "订单数据异常");
+        }
+        
+        List<Long> productIds = items.stream().map(OrderItem::getProductId).collect(Collectors.toList());
+        long count = productService.lambdaQuery()
+                .in(Product::getId, productIds)
+                .eq(Product::getMerchantId, merchantId)
+                .count();
+                
+        if (count == 0) {
+            throw new ServiceException(ResultCode.FORBIDDEN, "无权操作该订单");
+        }
+        
+        return order;
     }
 }
 

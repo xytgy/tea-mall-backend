@@ -5,9 +5,12 @@ import com.xytgy.teamallbackend.common.ResultCode;
 import com.xytgy.teamallbackend.common.UserContext;
 import com.xytgy.teamallbackend.module.order.dto.OrderCreateRequest;
 import com.xytgy.teamallbackend.module.order.dto.OrderPayRequest;
+import com.xytgy.teamallbackend.module.order.dto.OrderRefundRefuseRequest;
+import com.xytgy.teamallbackend.module.order.dto.OrderReviewRequest;
 import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.module.order.service.OrdersService;
 import com.xytgy.teamallbackend.module.order.vo.CreateOrderVO;
+import com.xytgy.teamallbackend.module.order.vo.LogisticsVO;
 import com.xytgy.teamallbackend.module.order.vo.MerchantOrderVO;
 import com.xytgy.teamallbackend.module.order.vo.OrderVO;
 import com.xytgy.teamallbackend.module.order.vo.OrderStatsVO;
@@ -130,6 +133,29 @@ public class OrderController {
         return Result.success(null);
     }
 
+    @PostMapping("/refund/{orderId}")
+    @Operation(summary = "申请退款")
+    public Result<Void> applyRefund(@PathVariable Long orderId) {
+        Long userId = currentUserId();
+        ordersService.applyRefund(userId, orderId);
+        return Result.success("退款申请已提交", null);
+    }
+
+    @PostMapping("/review")
+    @Operation(summary = "提交评价")
+    public Result<Void> submitReview(@RequestBody OrderReviewRequest request) {
+        Long userId = currentUserId();
+        ordersService.submitReview(userId, request);
+        return Result.success("评价发表成功", null);
+    }
+
+    @GetMapping("/logistics")
+    @Operation(summary = "获取订单物流信息")
+    public Result<List<LogisticsVO>> logistics(@RequestParam("orderId") Long orderId) {
+        Long userId = currentUserId();
+        return Result.success(ordersService.getOrderLogistics(userId, orderId));
+    }
+
     @GetMapping("/merchant/list")
     @Operation(summary = "商家获取自己的订单列表")
     public Result<List<MerchantOrderVO>> merchantList() {
@@ -145,6 +171,24 @@ public class OrderController {
         Long shopId = currentShopId();
         ordersService.deliverOrder(shopId, orderId);
         return Result.success(null);
+    }
+
+    @PostMapping("/merchant/refund/{orderId}/approve")
+    @Operation(summary = "商家同意退款")
+    public Result<Void> approveRefund(@PathVariable Long orderId) {
+        requireRole(1);
+        Long shopId = currentShopId();
+        ordersService.approveRefund(shopId, orderId);
+        return Result.success("操作成功", null);
+    }
+
+    @PostMapping("/merchant/refund/{orderId}/refuse")
+    @Operation(summary = "商家拒绝退款")
+    public Result<Void> refuseRefund(@PathVariable Long orderId, @RequestBody OrderRefundRefuseRequest request) {
+        requireRole(1);
+        Long shopId = currentShopId();
+        ordersService.refuseRefund(shopId, orderId, request.getReason());
+        return Result.success("操作成功", null);
     }
 
     private Long currentUserId() {

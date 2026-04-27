@@ -65,4 +65,9 @@ public class Orders {
      * 支付时间
      */
     private LocalDateTime payTime;
+    
+    /**
+     * 拒绝退款原因
+     */
+    private String refusalReason;
 }

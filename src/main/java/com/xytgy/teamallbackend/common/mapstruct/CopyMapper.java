@@ -87,7 +87,10 @@ public interface CopyMapper {
     @Mapping(source = "items", target = "items")
     OrderVO toOrderVO(Orders order, List<OrderItem> items);
 
-    MerchantOrderVO toMerchantOrderVO(Orders order);
+    @Mapping(target = ".", source = "order")
+    @Mapping(source = "order.id", target = "id")
+    @Mapping(source = "items", target = "items")
+    MerchantOrderVO toMerchantOrderVO(Orders order, List<OrderItem> items);
 
     Orders toOrders(OrderCreateRequest request);
 
