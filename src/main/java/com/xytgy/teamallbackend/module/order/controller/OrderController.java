@@ -125,17 +125,17 @@ public class OrderController {
     @GetMapping("/merchant/list")
     @Operation(summary = "商家获取自己的订单列表")
     public Result<List<MerchantOrderVO>> merchantList() {
-        Long merchantId = currentUserId();
         requireRole(1);
-        return Result.success(ordersService.listMerchantOrders(merchantId));
+        Long shopId = currentShopId();
+        return Result.success(ordersService.listMerchantOrders(shopId));
     }
 
     @PostMapping("/merchant/deliver/{orderId}")
     @Operation(summary = "商家对订单进行发货")
     public Result<Void> deliver(@PathVariable Long orderId) {
-        Long merchantId = currentUserId();
         requireRole(1);
-        ordersService.deliverOrder(merchantId, orderId);
+        Long shopId = currentShopId();
+        ordersService.deliverOrder(shopId, orderId);
         return Result.success(null);
     }
 
@@ -145,6 +145,14 @@ public class OrderController {
             throw new ServiceException(ResultCode.UNAUTHORIZED, "未登录");
         }
         return userId;
+    }
+
+    private Long currentShopId() {
+        Long shopId = UserContext.getShopId();
+        if (shopId == null) {
+            throw new ServiceException(ResultCode.FORBIDDEN, "请先完善店铺信息");
+        }
+        return shopId;
     }
 
     private void requireRole(Integer expectRole) {

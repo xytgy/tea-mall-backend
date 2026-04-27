@@ -51,35 +51,35 @@ public class ProductController {
     @GetMapping("/merchant/list")
     @Operation(summary = "商家获取自己的商品列表")
     public Result<List<ProductVO>> merchantList() {
-        Long merchantId = currentUserId();
         requireRole(1);
-        return Result.success(productService.listMerchantProducts(merchantId));
+        Long shopId = currentShopId();
+        return Result.success(productService.listMerchantProducts(shopId));
     }
 
     @PostMapping("/add")
     @Operation(summary = "商家发布新商品")
     public Result<Void> add(@RequestBody ProductAddRequest request) {
-        Long merchantId = currentUserId();
         requireRole(1);
-        productService.addProduct(merchantId, request);
+        Long shopId = currentShopId();
+        productService.addProduct(shopId, request);
         return Result.success(null);
     }
 
     @PutMapping("/update")
     @Operation(summary = "商家编辑商品")
     public Result<Void> update(@RequestBody ProductUpdateRequest request) {
-        Long merchantId = currentUserId();
         requireRole(1);
-        productService.updateProduct(merchantId, request);
+        Long shopId = currentShopId();
+        productService.updateProduct(shopId, request);
         return Result.success(null);
     }
 
     @PutMapping("/status")
     @Operation(summary = "商家上架/下架商品")
     public Result<Void> updateStatus(@RequestBody ProductStatusRequest request) {
-        Long merchantId = currentUserId();
         requireRole(1);
-        productService.updateProductStatus(merchantId, request);
+        Long shopId = currentShopId();
+        productService.updateProductStatus(shopId, request);
         return Result.success(null);
     }
 
@@ -110,6 +110,14 @@ public class ProductController {
             throw new ServiceException(ResultCode.UNAUTHORIZED, "未登录");
         }
         return userId;
+    }
+
+    private Long currentShopId() {
+        Long shopId = UserContext.getShopId();
+        if (shopId == null) {
+            throw new ServiceException(ResultCode.FORBIDDEN, "请先完善店铺信息");
+        }
+        return shopId;
     }
 
     private void requireRole(Integer expectRole) {

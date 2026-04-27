@@ -20,6 +20,7 @@ import com.xytgy.teamallbackend.module.user.service.UserService;
 import com.xytgy.teamallbackend.module.product.vo.AuditVO;
 import com.xytgy.teamallbackend.module.product.vo.ProductVO;
 import com.xytgy.teamallbackend.module.product.vo.ProductReviewVO;
+import com.xytgy.teamallbackend.module.shop.service.ShopService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -42,6 +43,9 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
 
     @Autowired
     private UserService userService;
+    
+    @Autowired
+    private ShopService shopService;
 
     @Autowired
     private CopyMapper copyMapper;
@@ -179,14 +183,22 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
         }
 
         Set<Long> merchantIds = list.stream().map(Product::getMerchantId).collect(Collectors.toSet());
-        Map<Long, User> userMap = userService.listByIds(merchantIds).stream()
+        // 注意：现在 merchantId 实际存储的是 shopId，所以先通过 shop 找到对应的 userId
+        Map<Long, com.xytgy.teamallbackend.module.shop.entity.Shop> shopMap = shopService.listByIds(merchantIds).stream()
+                .collect(Collectors.toMap(com.xytgy.teamallbackend.module.shop.entity.Shop::getId, s -> s));
+                
+        Set<Long> userIds = shopMap.values().stream().map(com.xytgy.teamallbackend.module.shop.entity.Shop::getUserId).collect(Collectors.toSet());
+        Map<Long, User> userMap = userService.listByIds(userIds).stream()
                 .collect(Collectors.toMap(User::getId, u -> u));
 
         return list.stream().map(p -> {
-            User u = userMap.get(p.getMerchantId());
+            com.xytgy.teamallbackend.module.shop.entity.Shop s = shopMap.get(p.getMerchantId());
+            User u = s != null ? userMap.get(s.getUserId()) : null;
             AuditVO vo = copyMapper.toAuditVO(p, u);
             if (u == null) {
                 vo.setMerchant("未知商家");
+            } else {
+                vo.setMerchant(s.getShopName()); // 也可以改为显示店铺名
             }
             return vo;
         }).collect(Collectors.toList());

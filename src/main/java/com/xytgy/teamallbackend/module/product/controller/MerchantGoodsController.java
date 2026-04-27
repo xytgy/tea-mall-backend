@@ -26,9 +26,9 @@ public class MerchantGoodsController {
 
     @PostMapping("/add")
     public Result<IdVO> add(@RequestBody MerchantGoodsAddRequest request) {
-        Long merchantId = currentUserId();
         requireRole(1);
-        Long id = productService.addMerchantGoods(merchantId, request);
+        Long shopId = currentShopId();
+        Long id = productService.addMerchantGoods(shopId, request);
         return Result.success("新商品发布成功", new IdVO(id));
     }
 
@@ -38,6 +38,14 @@ public class MerchantGoodsController {
             throw new ServiceException(ResultCode.UNAUTHORIZED, "未登录");
         }
         return userId;
+    }
+
+    private Long currentShopId() {
+        Long shopId = UserContext.getShopId();
+        if (shopId == null) {
+            throw new ServiceException(ResultCode.FORBIDDEN, "请先完善店铺信息");
+        }
+        return shopId;
     }
 
     private void requireRole(Integer expectRole) {
