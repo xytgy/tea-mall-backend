@@ -18,6 +18,7 @@ import com.xytgy.teamallbackend.module.order.vo.CreateOrderVO;
 import com.xytgy.teamallbackend.module.order.vo.MerchantOrderVO;
 import com.xytgy.teamallbackend.module.order.vo.OrderItemVO;
 import com.xytgy.teamallbackend.module.order.vo.OrderVO;
+import com.xytgy.teamallbackend.module.order.vo.OrderStatsVO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -133,11 +134,15 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
     }
 
     @Override
-    public List<OrderVO> listOrders(Long userId) {
-        List<Orders> orders = lambdaQuery()
-                .eq(Orders::getUserId, userId)
-                .orderByDesc(Orders::getCreateTime)
-                .list();
+    public List<OrderVO> listOrders(Long userId, Integer status) {
+        var wrapper = lambdaQuery()
+                .eq(Orders::getUserId, userId);
+                
+        if (status != null) {
+            wrapper.eq(Orders::getStatus, status);
+        }
+        
+        List<Orders> orders = wrapper.orderByDesc(Orders::getCreateTime).list();
         if (orders.isEmpty()) {
             return Collections.emptyList();
         }
@@ -281,6 +286,34 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         // 更新为已发货状态
         order.setStatus(2);
         updateById(order);
+    }
+
+    @Override
+    public OrderStatsVO getOrderStats(Long userId) {
+        OrderStatsVO stats = OrderStatsVO.builder()
+                .unpaid(0)
+                .packing(0)
+                .delivering(0)
+                .reviewing(0)
+                .build();
+                
+        com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<Orders> queryWrapper = new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<>();
+        queryWrapper.select("status", "COUNT(*) as count")
+                .eq("user_id", userId)
+                .groupBy("status");
+        List<Map<String, Object>> result = this.listMaps(queryWrapper);
+                
+        for (Map<String, Object> map : result) {
+            Integer status = ((Number) map.get("status")).intValue();
+            Integer count = ((Number) map.get("count")).intValue();
+            switch (status) {
+                case 0 -> stats.setUnpaid(count);
+                case 1 -> stats.setPacking(count);
+                case 2 -> stats.setDelivering(count);
+                case 4 -> stats.setReviewing(count);
+            }
+        }
+        return stats;
     }
 
     private Orders getUserOrder(Long userId, Long orderId) {

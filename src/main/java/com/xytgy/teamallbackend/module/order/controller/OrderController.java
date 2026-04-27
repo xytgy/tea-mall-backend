@@ -10,6 +10,7 @@ import com.xytgy.teamallbackend.module.order.service.OrdersService;
 import com.xytgy.teamallbackend.module.order.vo.CreateOrderVO;
 import com.xytgy.teamallbackend.module.order.vo.MerchantOrderVO;
 import com.xytgy.teamallbackend.module.order.vo.OrderVO;
+import com.xytgy.teamallbackend.module.order.vo.OrderStatsVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
@@ -81,9 +82,16 @@ public class OrderController {
             ),
             @ApiResponse(responseCode = "401", description = "未登录")
     })
-    public Result<List<OrderVO>> list() {
+    public Result<List<OrderVO>> list(@RequestParam(value = "status", required = false) Integer status) {
         Long userId = currentUserId();
-        return Result.success(ordersService.listOrders(userId));
+        return Result.success(ordersService.listOrders(userId, status));
+    }
+
+    @GetMapping("/stats")
+    @Operation(summary = "获取订单数量统计")
+    public Result<OrderStatsVO> stats() {
+        Long userId = currentUserId();
+        return Result.success(ordersService.getOrderStats(userId));
     }
 
     @PostMapping("/confirm/{orderId}")

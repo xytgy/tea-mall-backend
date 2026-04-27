@@ -6,6 +6,7 @@ import com.xytgy.teamallbackend.module.order.dto.OrderPayRequest;
 import com.xytgy.teamallbackend.module.order.entity.Orders;
 import com.xytgy.teamallbackend.module.order.vo.CreateOrderVO;
 import com.xytgy.teamallbackend.module.order.vo.MerchantOrderVO;
+import com.xytgy.teamallbackend.module.order.vo.OrderStatsVO;
 import com.xytgy.teamallbackend.module.order.vo.OrderVO;
 
 import java.util.List;
@@ -17,7 +18,7 @@ import java.util.List;
 */
 public interface OrdersService extends IService<Orders> {
     CreateOrderVO createOrder(Long userId, OrderCreateRequest request);
-    List<OrderVO> listOrders(Long userId);
+    List<OrderVO> listOrders(Long userId, Integer status);
     OrderVO getOrderDetail(Long userId, Long orderId);
     void confirmOrder(Long userId, Long orderId);
     void cancelOrder(Long userId, Long orderId);
@@ -25,4 +26,5 @@ public interface OrdersService extends IService<Orders> {
     
     List<MerchantOrderVO> listMerchantOrders(Long merchantId);
     void deliverOrder(Long merchantId, Long orderId);
+    OrderStatsVO getOrderStats(Long userId);
 }
