@@ -12,6 +12,7 @@ import com.xytgy.teamallbackend.module.teacircle.entity.TeaLike;
 import com.xytgy.teamallbackend.module.teacircle.entity.TeaPost;
 import com.xytgy.teamallbackend.module.teacircle.repository.TeaLikeMapper;
 import com.xytgy.teamallbackend.module.teacircle.repository.TeaPostMapper;
+import com.xytgy.teamallbackend.module.teacircle.service.TeaCommentService;
 import com.xytgy.teamallbackend.module.teacircle.service.TeaFollowService;
 import com.xytgy.teamallbackend.module.teacircle.service.TeaNotificationService;
 import com.xytgy.teamallbackend.module.teacircle.service.TeaPostService;
@@ -20,6 +21,7 @@ import com.xytgy.teamallbackend.module.user.entity.User;
 import com.xytgy.teamallbackend.module.user.service.UserService;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,6 +40,10 @@ public class TeaPostServiceImpl extends ServiceImpl<TeaPostMapper, TeaPost> impl
     private TeaFollowService teaFollowService;
     @Autowired
     private TeaNotificationService teaNotificationService;
+    
+    @Autowired
+    @Lazy
+    private TeaCommentService teaCommentService;
 
     private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -100,7 +106,13 @@ public class TeaPostServiceImpl extends ServiceImpl<TeaPostMapper, TeaPost> impl
         if (post == null || post.getIsDeleted() == 1) {
             throw new ServiceException(ResultCode.NOT_FOUND, "动态不存在");
         }
-        return toVO(post, userId);
+        TeaPostVO vo = toVO(post, userId);
+        
+        // Fetch recent comments for the detail view
+        PageResult<com.xytgy.teamallbackend.module.teacircle.vo.TeaCommentVO> commentPage = teaCommentService.listComments(postId, 1, 20);
+        vo.setComments(commentPage.getList());
+        
+        return vo;
     }
 
     @Override

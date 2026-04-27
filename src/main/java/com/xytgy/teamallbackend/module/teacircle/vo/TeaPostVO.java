@@ -15,5 +15,8 @@ public class TeaPostVO {
     private Boolean isFollowing;
     private String createTime;
     private AuthorVO author;
+    
+    private List<TeaCommentVO> comments;
 }
+
 
