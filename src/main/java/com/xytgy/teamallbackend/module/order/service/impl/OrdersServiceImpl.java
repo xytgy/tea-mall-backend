@@ -1,8 +1,17 @@
 package com.xytgy.teamallbackend.module.order.service.impl;
 
+import com.alipay.api.AlipayApiException;
+import com.alipay.api.AlipayClient;
+import com.alipay.api.domain.AlipayTradeCloseModel;
+import com.alipay.api.domain.AlipayTradeRefundModel;
+import com.alipay.api.request.AlipayTradeCloseRequest;
+import com.alipay.api.request.AlipayTradeRefundRequest;
+import com.alipay.api.response.AlipayTradeCloseResponse;
+import com.alipay.api.response.AlipayTradeRefundResponse;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.xytgy.teamallbackend.common.ResultCode;
 import com.xytgy.teamallbackend.common.mapstruct.CopyMapper;
+import com.xytgy.teamallbackend.config.AlipayConfig;
 import com.xytgy.teamallbackend.module.order.dto.OrderCreateRequest;
 import com.xytgy.teamallbackend.module.order.dto.OrderPayRequest;
 import com.xytgy.teamallbackend.module.order.dto.OrderReviewRequest;
@@ -10,12 +19,14 @@ import com.xytgy.teamallbackend.module.product.entity.ProductReview;
 import com.xytgy.teamallbackend.module.product.repository.ProductReviewMapper;
 import com.xytgy.teamallbackend.module.order.entity.OrderItem;
 import com.xytgy.teamallbackend.module.order.entity.Orders;
+import com.xytgy.teamallbackend.module.order.entity.PaymentRecord;
 import com.xytgy.teamallbackend.module.product.entity.Product;
 import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.module.order.repository.OrdersMapper;
 import com.xytgy.teamallbackend.module.cart.service.CartService;
 import com.xytgy.teamallbackend.module.order.service.OrderItemService;
 import com.xytgy.teamallbackend.module.order.service.OrdersService;
+import com.xytgy.teamallbackend.module.order.service.PaymentRecordService;
 import com.xytgy.teamallbackend.module.product.service.ProductService;
 import com.xytgy.teamallbackend.module.order.vo.CreateOrderVO;
 import com.xytgy.teamallbackend.module.order.vo.LogisticsVO;
@@ -49,6 +60,10 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
     private final CopyMapper copyMapper;
     
     private final ProductReviewMapper productReviewMapper;
+    
+    private final PaymentRecordService paymentRecordService;
+    private final AlipayClient alipayClient;
+    private final AlipayConfig alipayConfig;
 
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -181,6 +196,24 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         Orders order = getUserOrder(userId, orderId);
         if (!Objects.equals(order.getStatus(), 0)) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "仅待支付订单可取消");
+        }
+        
+        PaymentRecord payingRecord = paymentRecordService.getLastPayingRecord(order.getId());
+        if (payingRecord != null && Objects.equals(payingRecord.getStatus(), "PAYING")) {
+            AlipayTradeCloseRequest closeRequest = new AlipayTradeCloseRequest();
+            AlipayTradeCloseModel model = new AlipayTradeCloseModel();
+            model.setOutTradeNo(payingRecord.getOutTradeNo());
+            closeRequest.setBizModel(model);
+            try {
+                AlipayTradeCloseResponse closeResponse = alipayClient.execute(closeRequest);
+                if (!closeResponse.isSuccess()) {
+                    throw new ServiceException(ResultCode.ERROR, "支付宝关单失败: " + closeResponse.getSubMsg());
+                }
+                payingRecord.setStatus("CLOSED");
+                paymentRecordService.updateById(payingRecord);
+            } catch (AlipayApiException e) {
+                throw new ServiceException(ResultCode.ERROR, "支付宝关单异常: " + e.getMessage());
+            }
         }
 
         List<OrderItem> items = orderItemService.lambdaQuery()
@@ -448,6 +481,47 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
             throw new ServiceException(ResultCode.BAD_REQUEST, "订单状态不正确，无法同意退款");
         }
         
+        PaymentRecord record = null;
+        if (order.getPaymentId() != null) {
+            record = paymentRecordService.getById(order.getPaymentId());
+        }
+        if (record == null) {
+            record = paymentRecordService.getLastPaidRecord(order.getId());
+        }
+        if (record == null) {
+            throw new ServiceException(ResultCode.BAD_REQUEST, "无有效支付记录，无法退款");
+        }
+        
+        if (!Objects.equals(record.getStatus(), "PAID") && !Objects.equals(record.getStatus(), "REFUNDED")) {
+            throw new ServiceException(ResultCode.BAD_REQUEST, "支付记录状态异常，无法退款");
+        }
+        
+        BigDecimal refundAmount = record.getTotalAmount();
+        if (refundAmount == null) {
+            throw new ServiceException(ResultCode.BAD_REQUEST, "支付金额异常，无法退款");
+        }
+        
+        if (!Objects.equals(record.getStatus(), "REFUNDED")) {
+            String outRequestNo = "refund_" + order.getId();
+            
+            AlipayTradeRefundRequest refundRequest = new AlipayTradeRefundRequest();
+            AlipayTradeRefundModel refundModel = new AlipayTradeRefundModel();
+            refundModel.setOutTradeNo(record.getOutTradeNo());
+            refundModel.setRefundAmount(refundAmount.toString());
+            refundModel.setOutRequestNo(outRequestNo);
+            refundRequest.setBizModel(refundModel);
+            try {
+                AlipayTradeRefundResponse refundResponse = alipayClient.execute(refundRequest);
+                if (!refundResponse.isSuccess()) {
+                    throw new ServiceException(ResultCode.ERROR, "支付宝退款失败: " + refundResponse.getSubMsg());
+                }
+                record.setStatus("REFUNDED");
+                paymentRecordService.updateById(record);
+            } catch (AlipayApiException e) {
+                throw new ServiceException(ResultCode.ERROR, "支付宝退款异常: " + e.getMessage());
+            }
+        }
+
         // 并发控制：使用带状态条件的 update
         boolean updated = lambdaUpdate()
                 .set(Orders::getStatus, 7)
@@ -457,6 +531,10 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
                 .update();
                 
         if (!updated) {
+            Orders latest = getById(order.getId());
+            if (latest != null && Objects.equals(latest.getStatus(), 7)) {
+                return;
+            }
             throw new ServiceException(ResultCode.BAD_REQUEST, "操作失败，订单状态已发生改变");
         }
         
@@ -516,5 +594,3 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         return order;
     }
 }
-
-

@@ -6,4 +6,5 @@ import com.xytgy.teamallbackend.module.order.entity.PaymentRecord;
 public interface PaymentRecordService extends IService<PaymentRecord> {
     PaymentRecord getByOutTradeNo(String outTradeNo);
     PaymentRecord getLastPayingRecord(Long orderId);
+    PaymentRecord getLastPaidRecord(Long orderId);
 }

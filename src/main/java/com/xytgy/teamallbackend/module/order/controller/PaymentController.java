@@ -26,14 +26,12 @@ import com.xytgy.teamallbackend.module.order.service.OrdersService;
 import com.xytgy.teamallbackend.module.order.service.PaymentRecordService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.HashMap;
 import java.util.Map;
 
 @RestController
@@ -41,21 +39,24 @@ import java.util.Map;
 @Tag(name = "支付宝支付接口")
 public class PaymentController {
 
-    @Autowired
-    private AlipayClient alipayClient;
+    private final AlipayClient alipayClient;
 
-    @Autowired
-    private AlipayConfig alipayConfig;
+    private final AlipayConfig alipayConfig;
 
-    @Autowired
-    private OrdersService ordersService;
+    private final OrdersService ordersService;
 
-    @Autowired
-    private PaymentRecordService paymentRecordService;
+    private final PaymentRecordService paymentRecordService;
 
-    @PostMapping("/alipay/pay")
+    public PaymentController(AlipayClient alipayClient, AlipayConfig alipayConfig, OrdersService ordersService, PaymentRecordService paymentRecordService) {
+        this.alipayClient = alipayClient;
+        this.alipayConfig = alipayConfig;
+        this.ordersService = ordersService;
+        this.paymentRecordService = paymentRecordService;
+    }
+
+    @RequestMapping(value = "/alipay/pay", method = {RequestMethod.GET, RequestMethod.POST}, produces = "text/html;charset=UTF-8")
     @Operation(summary = "发起电脑网站支付")
-    public Result<String> pay(@RequestParam Long orderId) {
+    public String pay(@RequestParam Long orderId) {
         Long userId = UserContext.getCurrentUserId();
         Orders order = ordersService.getById(orderId);
         if (order == null || !order.getUserId().equals(userId)) {
@@ -91,7 +92,7 @@ public class PaymentController {
         try {
             AlipayTradePagePayResponse response = alipayClient.pageExecute(request, "POST");
             if (response.isSuccess()) {
-                return Result.success("获取支付表单成功", response.getBody());
+                return response.getBody();
             } else {
                 throw new ServiceException(ResultCode.ERROR, "发起支付失败: " + response.getSubMsg());
             }

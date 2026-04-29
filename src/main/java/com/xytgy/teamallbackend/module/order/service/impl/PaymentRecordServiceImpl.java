@@ -23,4 +23,14 @@ public class PaymentRecordServiceImpl extends ServiceImpl<PaymentRecordMapper, P
                 .orderByDesc(PaymentRecord::getCreateTime)
                 .last("LIMIT 1"));
     }
+
+    @Override
+    public PaymentRecord getLastPaidRecord(Long orderId) {
+        return this.getOne(new LambdaQueryWrapper<PaymentRecord>()
+                .eq(PaymentRecord::getOrderId, orderId)
+                .eq(PaymentRecord::getStatus, "PAID")
+                .orderByDesc(PaymentRecord::getPayTime)
+                .orderByDesc(PaymentRecord::getId)
+                .last("LIMIT 1"));
+    }
 }
