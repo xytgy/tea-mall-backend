@@ -8,7 +8,7 @@ import com.xytgy.teamallbackend.module.user.entity.Address;
 import com.xytgy.teamallbackend.module.user.service.AddressService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -16,10 +16,10 @@ import java.util.List;
 @RestController
 @Tag(name = "收货地址接口")
 @RequestMapping("/api/user/address")
+@RequiredArgsConstructor
 public class AddressController {
 
-    @Autowired
-    private AddressService addressService;
+    private final AddressService addressService;
 
     @GetMapping("/list")
     @Operation(summary = "获取收货地址列表")

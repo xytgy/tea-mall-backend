@@ -21,7 +21,7 @@ import com.xytgy.teamallbackend.module.product.vo.AuditVO;
 import com.xytgy.teamallbackend.module.product.vo.ProductVO;
 import com.xytgy.teamallbackend.module.product.vo.ProductReviewVO;
 import com.xytgy.teamallbackend.module.shop.service.ShopService;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -38,20 +38,17 @@ import java.util.stream.Collectors;
 * @createDate 2026-04-14 20:05:50
 */
 @Service
+@RequiredArgsConstructor
 public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
     implements ProductService{
 
-    @Autowired
-    private UserService userService;
+    private final UserService userService;
     
-    @Autowired
-    private ShopService shopService;
+    private final ShopService shopService;
 
-    @Autowired
-    private CopyMapper copyMapper;
+    private final CopyMapper copyMapper;
     
-    @Autowired
-    private ProductReviewMapper productReviewMapper;
+    private final ProductReviewMapper productReviewMapper;
 
     @Override
     public List<ProductVO> listAvailableProducts() {
@@ -254,6 +251,5 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
         return vo;
     }
 }
-
 
 

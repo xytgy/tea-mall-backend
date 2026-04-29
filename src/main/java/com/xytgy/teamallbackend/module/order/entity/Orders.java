@@ -70,4 +70,39 @@ public class Orders {
      * 拒绝退款原因
      */
     private String refusalReason;
+
+    /**
+     * 关联最终成功的支付流水 ID
+     */
+    private Long paymentId;
+
+    /**
+     * 抽佣比例快照
+     */
+    private BigDecimal commissionRate;
+
+    /**
+     * 抽佣基数
+     */
+    private BigDecimal feeBaseAmount;
+
+    /**
+     * 平台抽佣金额
+     */
+    private BigDecimal platformFee;
+
+    /**
+     * 商家应结金额
+     */
+    private BigDecimal merchantAmount;
+
+    /**
+     * 结算状态：0-未结算, 1-结算中, 2-已结算
+     */
+    private Integer settleStatus;
+
+    /**
+     * 预计结算时间
+     */
+    private LocalDateTime settleTime;
 }

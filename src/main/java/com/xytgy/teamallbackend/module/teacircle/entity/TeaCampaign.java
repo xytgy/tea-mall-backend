@@ -15,6 +15,6 @@ public class TeaCampaign {
     private String cover;
     private String description;
     private String link;
-    private Integer status;
+    private Integer status; // 1:进行中, 0:已结束/停用
     private LocalDateTime createTime;
 }

@@ -7,36 +7,52 @@ import com.xytgy.teamallbackend.common.ResultCode;
 import com.xytgy.teamallbackend.common.UserContext;
 import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.properties.AliyunOSSProperties;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.UUID;
 
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class AliyunOSSUtils {
 
-    @Autowired
-    private AliyunOSSProperties aliyunOSSProperties;
+    private final AliyunOSSProperties aliyunOSSProperties;
 
     public String upload(MultipartFile file) {
+        String originalFilename = file.getOriginalFilename();
+        String extension = "";
+        if (StringUtils.hasText(originalFilename) && originalFilename.contains(".")) {
+            extension = originalFilename.substring(originalFilename.lastIndexOf("."));
+        }
+        String fileName = UUID.randomUUID().toString().replace("-", "") + extension;
+        return uploadWithKey(file, fileName);
+    }
+
+    public String uploadTeaCircleImage(MultipartFile file) {
+        String originalFilename = file.getOriginalFilename();
+        String extension = "";
+        if (StringUtils.hasText(originalFilename) && originalFilename.contains(".")) {
+            extension = originalFilename.substring(originalFilename.lastIndexOf("."));
+        }
+        String datePath = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy/MM/dd"));
+        String key = "tea-circle/" + datePath + "/" + UUID.randomUUID().toString().replace("-", "") + extension;
+        return uploadWithKey(file, key);
+    }
+
+    public String uploadWithKey(MultipartFile file, String objectKey) {
         if (UserContext.getCurrentUserId() == null) {
             throw new ServiceException(ResultCode.UNAUTHORIZED, "未登录");
         }
 
         if (file.isEmpty()) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "上传文件不能为空");
-        }
-
-        // 获取原始文件名和后缀
-        String originalFilename = file.getOriginalFilename();
-        String extension = "";
-        if (StringUtils.hasText(originalFilename) && originalFilename.contains(".")) {
-            extension = originalFilename.substring(originalFilename.lastIndexOf("."));
         }
 
         // 检查文件类型，简单防范
@@ -52,8 +68,6 @@ public class AliyunOSSUtils {
             throw new ServiceException(ResultCode.ERROR, "OSS 配置不完整，请检查 application-dev.yaml");
         }
 
-        // 生成新的UUID文件名
-        String fileName = UUID.randomUUID().toString().replace("-", "") + extension;
         String endpoint = aliyunOSSProperties.getEndpoint().trim();
         if (!endpoint.startsWith("http://") && !endpoint.startsWith("https://")) {
             endpoint = "https://" + endpoint;
@@ -66,7 +80,7 @@ public class AliyunOSSUtils {
 
         try {
             // 上传文件到指定的 Bucket
-            ossClient.putObject(aliyunOSSProperties.getBucketName(), fileName, file.getInputStream());
+            ossClient.putObject(aliyunOSSProperties.getBucketName(), objectKey, file.getInputStream());
         } catch (IOException e) {
             log.error("文件上传到阿里云 OSS 失败: {}", e.getMessage());
             throw new ServiceException(ResultCode.ERROR, "文件上传失败");
@@ -82,7 +96,7 @@ public class AliyunOSSUtils {
                 .append(".")
                 .append(aliyunOSSProperties.getEndpoint())
                 .append("/")
-                .append(fileName);
+                .append(objectKey);
 
         log.info("文件上传成功，访问路径为: {}", stringBuilder.toString());
 

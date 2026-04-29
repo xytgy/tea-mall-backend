@@ -10,7 +10,7 @@ import com.xytgy.teamallbackend.module.user.service.UserService;
 import com.xytgy.teamallbackend.module.product.vo.IdVO;
 import com.xytgy.teamallbackend.module.user.vo.UserVO;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -24,10 +24,10 @@ import java.util.Map;
 @RestController
 @Tag(name = "管理员")
 @RequestMapping("/api/user/admin")
+@RequiredArgsConstructor
 public class AdminUserController {
 
-    @Autowired
-    private UserService userService;
+    private final UserService userService;
 
     @PostMapping("/add")
     public Result<Void> add(@RequestBody AdminUserAddRequest request) {

@@ -9,7 +9,7 @@ import com.xytgy.teamallbackend.module.feedback.dto.FeedbackStatusRequest;
 import com.xytgy.teamallbackend.module.feedback.service.FeedbackService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -17,10 +17,10 @@ import java.util.Map;
 @RestController
 @Tag(name = "意见反馈")
 @RequestMapping("/api/feedback")
+@RequiredArgsConstructor
 public class FeedbackController {
 
-    @Autowired
-    private FeedbackService feedbackService;
+    private final FeedbackService feedbackService;
 
     @PostMapping("/submit")
     @Operation(summary = "提交意见反馈")

@@ -10,7 +10,7 @@ import com.xytgy.teamallbackend.module.shop.service.ShopService;
 import com.xytgy.teamallbackend.module.shop.vo.ShopVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
@@ -19,10 +19,10 @@ import java.util.Map;
 @RestController
 @Tag(name = "店铺管理")
 @RequestMapping("/api/shop")
+@RequiredArgsConstructor
 public class ShopController {
 
-    @Autowired
-    private ShopService shopService;
+    private final ShopService shopService;
 
     @PostMapping("/register")
     @Operation(summary = "商家入驻/完善信息")

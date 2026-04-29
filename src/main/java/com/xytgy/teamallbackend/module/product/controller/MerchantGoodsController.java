@@ -8,7 +8,7 @@ import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.module.product.service.ProductService;
 import com.xytgy.teamallbackend.module.product.vo.IdVO;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -19,10 +19,10 @@ import java.util.Map;
 @RestController
 @Tag(name = "商家")
 @RequestMapping("/api/merchant/goods")
+@RequiredArgsConstructor
 public class MerchantGoodsController {
 
-    @Autowired
-    private ProductService productService;
+    private final ProductService productService;
 
     @PostMapping("/add")
     public Result<IdVO> add(@RequestBody MerchantGoodsAddRequest request) {

@@ -10,7 +10,7 @@ import com.xytgy.teamallbackend.module.favorite.service.FavoriteService;
 import com.xytgy.teamallbackend.module.favorite.vo.FavoriteItemVO;
 import com.xytgy.teamallbackend.module.product.entity.Product;
 import com.xytgy.teamallbackend.module.product.service.ProductService;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.Collections;
@@ -20,13 +20,11 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
+@RequiredArgsConstructor
 public class FavoriteServiceImpl extends ServiceImpl<FavoriteMapper, Favorite> implements FavoriteService {
 
-    @Autowired
-    private ProductService productService;
-
-    @Autowired
-    private CopyMapper copyMapper;
+    private final ProductService productService;
+    private final CopyMapper copyMapper;
 
     @Override
     public List<FavoriteItemVO> listFavorites(Long userId) {

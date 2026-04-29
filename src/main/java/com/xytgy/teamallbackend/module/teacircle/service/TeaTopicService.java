@@ -7,4 +7,6 @@ import com.xytgy.teamallbackend.module.teacircle.vo.TeaTopicVO;
 
 public interface TeaTopicService extends IService<TeaTopic> {
     PageResult<TeaTopicVO> getTopics(int page, int pageSize);
+    TeaTopicVO getTopicByName(String name, boolean increaseView);
+    TeaTopic getOrCreateTopicByName(String name, String title);
 }

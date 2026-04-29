@@ -10,7 +10,7 @@ import com.xytgy.teamallbackend.module.cart.service.CartService;
 import com.xytgy.teamallbackend.module.cart.repository.CartMapper;
 import com.xytgy.teamallbackend.module.product.service.ProductService;
 import com.xytgy.teamallbackend.module.cart.vo.CartItemVO;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.Collections;
@@ -25,14 +25,12 @@ import java.util.stream.Collectors;
 * @createDate 2026-04-15 08:01:18
 */
 @Service
+@RequiredArgsConstructor
 public class CartServiceImpl extends ServiceImpl<CartMapper, Cart>
     implements CartService{
 
-    @Autowired
-    private ProductService productService;
-
-    @Autowired
-    private CopyMapper copyMapper;
+    private final ProductService productService;
+    private final CopyMapper copyMapper;
 
     @Override
     public CartItemVO addToCart(Long userId, Long productId, Integer quantity) {
@@ -153,6 +151,5 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart>
         return copyMapper.toCartItemVO(cart, product);
     }
 }
-
 
 

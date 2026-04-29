@@ -19,7 +19,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -29,10 +29,10 @@ import java.util.Map;
 @RequestMapping("/api/product")
 @Tag(name = "商品")
 @SecurityRequirement(name = "BearerAuth")
+@RequiredArgsConstructor
 public class ProductController {
 
-    @Autowired
-    private ProductService productService;
+    private final ProductService productService;
 
     @GetMapping("/list")
     @Operation(summary = "商品列表", description = "返回当前可售商品列表")

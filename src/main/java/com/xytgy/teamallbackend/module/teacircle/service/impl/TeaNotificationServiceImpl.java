@@ -23,10 +23,13 @@ import java.util.stream.Collectors;
 @Service
 public class TeaNotificationServiceImpl extends ServiceImpl<TeaNotificationMapper, TeaNotification> implements TeaNotificationService {
 
-    @Autowired
-    private UserService userService;
+    private final UserService userService;
 
     private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+    public TeaNotificationServiceImpl(UserService userService) {
+        this.userService = userService;
+    }
 
     @Override
     public Map<String, Integer> getUnreadCount(Long userId) {

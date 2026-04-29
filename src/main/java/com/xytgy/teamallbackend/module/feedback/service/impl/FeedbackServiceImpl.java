@@ -13,7 +13,7 @@ import com.xytgy.teamallbackend.module.feedback.entity.Feedback;
 import com.xytgy.teamallbackend.module.feedback.repository.FeedbackMapper;
 import com.xytgy.teamallbackend.module.feedback.service.FeedbackService;
 import com.xytgy.teamallbackend.module.feedback.vo.FeedbackVO;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -25,10 +25,10 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
+@RequiredArgsConstructor
 public class FeedbackServiceImpl extends ServiceImpl<FeedbackMapper, Feedback> implements FeedbackService {
 
-    @Autowired
-    private ObjectMapper objectMapper;
+    private final ObjectMapper objectMapper;
 
     @Override
     public void submitFeedback(Long userId, FeedbackSubmitRequest request) {

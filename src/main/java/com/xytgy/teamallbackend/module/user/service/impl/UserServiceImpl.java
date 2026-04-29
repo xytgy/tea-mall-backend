@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.xytgy.teamallbackend.common.ResultCode;
 import com.xytgy.teamallbackend.common.UserRole;
 import com.xytgy.teamallbackend.module.user.dto.AdminUserAddRequest;
+import com.xytgy.teamallbackend.module.user.dto.UserProfileUpdateRequest;
 import com.xytgy.teamallbackend.module.user.entity.User;
 import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.module.user.repository.UserMapper;
@@ -20,7 +21,6 @@ import com.xytgy.teamallbackend.module.support.service.SupportService;
 import com.xytgy.teamallbackend.module.favorite.entity.Favorite;
 import com.xytgy.teamallbackend.module.order.entity.Orders;
 import com.xytgy.teamallbackend.module.support.entity.SupportTicket;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import com.xytgy.teamallbackend.module.user.dto.LoginRequest;
 import com.xytgy.teamallbackend.common.mapstruct.CopyMapper;
@@ -49,6 +49,8 @@ import com.xytgy.teamallbackend.module.user.vo.UserInfoVO;
 * @description 针对表【user】的数据库操作Service实现
 * @createDate 2026-04-15 07:59:22
 */
+import org.springframework.context.annotation.Lazy;
+
 @Service
 public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     implements UserService{
@@ -56,26 +58,34 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     private static final String LOGIN_USER_KEY_PREFIX = "login:user:";
     private static final String REFRESH_TOKEN_KEY_PREFIX = "login:refresh:token:";
 
-    @Autowired
-    private JwtUtils jwtUtils;
-    @Autowired
-    private StringRedisTemplate stringRedisTemplate;
-    @Autowired
-    private CopyMapper copyMapper;
-    @Autowired
-    private ShopService shopService;
+    private final JwtUtils jwtUtils;
+    private final StringRedisTemplate stringRedisTemplate;
+    private final CopyMapper copyMapper;
+    private final ShopService shopService;
+    private final AliyunOssUtil aliyunOssUtil;
+    private final FavoriteService favoriteService;
+    private final OrdersService ordersService;
+    private final SupportService supportService;
 
-    @Autowired
-    private AliyunOssUtil aliyunOssUtil;
-
-    @Autowired
-    private FavoriteService favoriteService;
-
-    @Autowired
-    private OrdersService ordersService;
-
-    @Autowired
-    private SupportService supportService;
+    public UserServiceImpl(
+            JwtUtils jwtUtils,
+            StringRedisTemplate stringRedisTemplate,
+            CopyMapper copyMapper,
+            ShopService shopService,
+            AliyunOssUtil aliyunOssUtil,
+            @Lazy FavoriteService favoriteService,
+            @Lazy OrdersService ordersService,
+            @Lazy SupportService supportService
+    ) {
+        this.jwtUtils = jwtUtils;
+        this.stringRedisTemplate = stringRedisTemplate;
+        this.copyMapper = copyMapper;
+        this.shopService = shopService;
+        this.aliyunOssUtil = aliyunOssUtil;
+        this.favoriteService = favoriteService;
+        this.ordersService = ordersService;
+        this.supportService = supportService;
+    }
 
     @Override
     public LoginResponse login(LoginRequest request) {
@@ -434,7 +444,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     }
 
     @Override
-    public void updateProfile(Long userId, com.xytgy.teamallbackend.module.user.dto.UserProfileUpdateRequest request) {
+    public void updateProfile(Long userId, UserProfileUpdateRequest request) {
         if (userId == null) {
             throw new ServiceException(ResultCode.UNAUTHORIZED, "未登录");
         }

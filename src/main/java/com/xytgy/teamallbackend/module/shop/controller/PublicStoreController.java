@@ -7,7 +7,7 @@ import com.xytgy.teamallbackend.module.shop.service.ShopService;
 import com.xytgy.teamallbackend.module.shop.vo.ShopVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -19,13 +19,12 @@ import java.util.stream.Collectors;
 @RestController
 @Tag(name = "公开店铺接口")
 @RequestMapping("/api/store")
+@RequiredArgsConstructor
 public class PublicStoreController {
 
-    @Autowired
-    private ShopService shopService;
+    private final ShopService shopService;
     
-    @Autowired
-    private ProductService productService;
+    private final ProductService productService;
 
     @GetMapping("/{id}")
     @Operation(summary = "获取公开店铺详情")

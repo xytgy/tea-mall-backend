@@ -7,9 +7,12 @@ import com.xytgy.teamallbackend.module.teacircle.vo.SimpleUserVO;
 
 import java.util.Map;
 
+import com.xytgy.teamallbackend.module.teacircle.vo.UserProfileVO;
+
 public interface TeaFollowService extends IService<TeaFollow> {
     Map<String, Boolean> toggleFollow(Long followerId, Long followingId);
     PageResult<SimpleUserVO> getFollowingList(Long currentUserId, int page, int pageSize);
     PageResult<SimpleUserVO> getFollowersList(Long currentUserId, int page, int pageSize);
     boolean isFollowing(Long followerId, Long followingId);
+    UserProfileVO getUserProfile(Long currentUserId, Long targetUserId);
 }

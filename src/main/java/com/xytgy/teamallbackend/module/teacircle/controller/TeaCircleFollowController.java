@@ -5,9 +5,10 @@ import com.xytgy.teamallbackend.common.Result;
 import com.xytgy.teamallbackend.common.UserContext;
 import com.xytgy.teamallbackend.module.teacircle.service.TeaFollowService;
 import com.xytgy.teamallbackend.module.teacircle.vo.SimpleUserVO;
+import com.xytgy.teamallbackend.module.teacircle.vo.UserProfileVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -15,10 +16,10 @@ import java.util.Map;
 @RestController
 @Tag(name = "茶友圈 - 关注")
 @RequestMapping("/api/tea-circle/users")
+@RequiredArgsConstructor
 public class TeaCircleFollowController {
 
-    @Autowired
-    private TeaFollowService teaFollowService;
+    private final TeaFollowService teaFollowService;
 
     @PostMapping("/{userId}/follow")
     @Operation(summary = "关注/取消关注")
@@ -41,5 +42,17 @@ public class TeaCircleFollowController {
                                                          @RequestParam(defaultValue = "10") int pageSize) {
         Long currentUserId = UserContext.getCurrentUserId();
         return Result.success(teaFollowService.getFollowersList(currentUserId, page, pageSize));
+    }
+    
+    @GetMapping("/{userId}/profile")
+    @Operation(summary = "获取用户详细统计资料")
+    public Result<UserProfileVO> getUserProfile(@PathVariable Long userId) {
+        Long currentUserId = null;
+        try {
+            currentUserId = UserContext.getCurrentUserId();
+        } catch (Exception e) {
+            // 未登录时允许查看，但 isFollowing 会返回 false
+        }
+        return Result.success(teaFollowService.getUserProfile(currentUserId, userId));
     }
 }

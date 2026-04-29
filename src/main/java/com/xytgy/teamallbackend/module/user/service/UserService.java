@@ -4,9 +4,11 @@ import com.baomidou.mybatisplus.extension.service.IService;
 import com.xytgy.teamallbackend.module.user.dto.AdminUserAddRequest;
 import com.xytgy.teamallbackend.module.user.dto.LoginRequest;
 import com.xytgy.teamallbackend.module.user.dto.RegisterRequest;
+import com.xytgy.teamallbackend.module.user.dto.UserProfileUpdateRequest;
 import com.xytgy.teamallbackend.module.user.entity.User;
 import com.xytgy.teamallbackend.module.user.vo.LoginResponse;
 import com.xytgy.teamallbackend.module.user.vo.UserInfoVO;
+import com.xytgy.teamallbackend.module.user.vo.UserOverviewStatsVO;
 import com.xytgy.teamallbackend.module.user.vo.UserVO;
 
 import java.util.List;
@@ -27,6 +29,6 @@ public interface UserService extends IService<User> {
     void logout();
     UserInfoVO getUserInfo(Long id);
     String updateAvatar(Long userId, String avatarBase64);
-    void updateProfile(Long userId, com.xytgy.teamallbackend.module.user.dto.UserProfileUpdateRequest request);
-    com.xytgy.teamallbackend.module.user.vo.UserOverviewStatsVO getUserOverviewStats(Long userId);
+    void updateProfile(Long userId, UserProfileUpdateRequest request);
+    UserOverviewStatsVO getUserOverviewStats(Long userId);
 }

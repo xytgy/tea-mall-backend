@@ -17,7 +17,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -26,10 +26,10 @@ import java.util.List;
 @RequestMapping("/api/cart")
 @Tag(name = "购物车")
 @SecurityRequirement(name = "BearerAuth")
+@RequiredArgsConstructor
 public class CartController {
 
-    @Autowired
-    private CartService cartService;
+    private final CartService cartService;
 
     @PostMapping("/add")
     @Operation(summary = "加入购物车")

@@ -9,7 +9,7 @@ import com.xytgy.teamallbackend.module.support.service.SupportService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
@@ -19,10 +19,10 @@ import java.util.Map;
 @RequestMapping("/api/support")
 @Tag(name = "我的咨询(工单)")
 @SecurityRequirement(name = "BearerAuth")
+@RequiredArgsConstructor
 public class SupportController {
 
-    @Autowired
-    private SupportService supportService;
+    private final SupportService supportService;
 
     @PostMapping("/create")
     @Operation(summary = "提交新咨询")

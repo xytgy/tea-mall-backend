@@ -29,7 +29,9 @@ import java.util.stream.Collectors;
 public class TeaCommentServiceImpl extends ServiceImpl<TeaCommentMapper, TeaComment> implements TeaCommentService {
 
     private final UserService userService;
+
     private final TeaPostService teaPostService;
+
     private final TeaNotificationService teaNotificationService;
 
     private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");

@@ -10,7 +10,7 @@ import com.xytgy.teamallbackend.module.favorite.service.FavoriteService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -23,10 +23,10 @@ import org.springframework.validation.annotation.Validated;
 @RequestMapping("/api/user/favorites")
 @Tag(name = "商品收藏")
 @SecurityRequirement(name = "BearerAuth")
+@RequiredArgsConstructor
 public class FavoriteController {
 
-    @Autowired
-    private FavoriteService favoriteService;
+    private final FavoriteService favoriteService;
 
     @GetMapping("/list")
     @Operation(summary = "获取收藏列表")

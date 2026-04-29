@@ -7,4 +7,5 @@ import java.util.List;
 public class TeaPostAddRequest {
     private String content;
     private List<String> images;
+    private List<String> topics;
 }

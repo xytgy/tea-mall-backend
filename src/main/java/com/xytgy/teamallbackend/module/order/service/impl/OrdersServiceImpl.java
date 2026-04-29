@@ -23,7 +23,7 @@ import com.xytgy.teamallbackend.module.order.vo.MerchantOrderVO;
 import com.xytgy.teamallbackend.module.order.vo.OrderItemVO;
 import com.xytgy.teamallbackend.module.order.vo.OrderVO;
 import com.xytgy.teamallbackend.module.order.vo.OrderStatsVO;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -38,21 +38,17 @@ import java.util.stream.Collectors;
 * @createDate 2026-04-15 08:01:03
 */
 @Service
+@RequiredArgsConstructor
 public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
     implements OrdersService{
 
-    @Autowired
-    private ProductService productService;
-    @Autowired
-    private OrderItemService orderItemService;
-    @Autowired
-    private CartService cartService;
+    private final ProductService productService;
+    private final OrderItemService orderItemService;
+    private final CartService cartService;
     
-    @Autowired
-    private CopyMapper copyMapper;
+    private final CopyMapper copyMapper;
     
-    @Autowired
-    private ProductReviewMapper productReviewMapper;
+    private final ProductReviewMapper productReviewMapper;
 
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -520,6 +516,5 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         return order;
     }
 }
-
 
 

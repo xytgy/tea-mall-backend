@@ -7,16 +7,16 @@ import com.xytgy.teamallbackend.module.user.vo.LoginResponse;
 import com.xytgy.teamallbackend.module.user.service.UserService;
 import com.xytgy.teamallbackend.exception.ServiceException;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
 @Tag(name = "登录注册")
 @RequestMapping("api/auth")
+@RequiredArgsConstructor
 public class AuthController {
 
-    @Autowired
-    private UserService userService;
+    private final UserService userService;
 
     @PostMapping("/login")
     public Result<LoginResponse> login(@RequestBody LoginRequest request) {

@@ -1,6 +1,6 @@
 package com.xytgy.teamallbackend.config;
 
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
@@ -9,10 +9,10 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import java.io.File;
 
 @Configuration
+@RequiredArgsConstructor
 public class WebConfig implements WebMvcConfigurer {
 
-    @Autowired
-    private JwtInterceptor jwtInterceptor;
+    private final JwtInterceptor jwtInterceptor;
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
@@ -34,7 +34,8 @@ public class WebConfig implements WebMvcConfigurer {
                         "/swagger-ui.html",
                         "/doc.html",
                         "/webjars/**",
-                        "/uploads/**" // 排除图片静态资源路径拦截
+                        "/uploads/**", // 排除图片静态资源路径拦截
+                        "/ws/**" // 排除 WebSocket 路径拦截，让 WebSocketHandler 自己做鉴权
                 );
     }
 

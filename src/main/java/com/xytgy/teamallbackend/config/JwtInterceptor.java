@@ -8,7 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.jsonwebtoken.ExpiredJwtException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
@@ -17,16 +17,13 @@ import java.util.HashMap;
 import java.util.Map;
 
 @Component
+@RequiredArgsConstructor
 public class JwtInterceptor implements HandlerInterceptor {
 
-    @Autowired
-    private JwtUtils jwtUtils;
-    @Autowired
-    private ObjectMapper objectMapper;
-    @Autowired
-    private UserService userService;
-    @Autowired
-    private StringRedisTemplate stringRedisTemplate;
+    private final JwtUtils jwtUtils;
+    private final ObjectMapper objectMapper;
+    private final UserService userService;
+    private final StringRedisTemplate stringRedisTemplate;
 
     private static final String LOGIN_USER_KEY_PREFIX = "login:user:";
 

@@ -19,4 +19,5 @@ public class TeaPost {
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
     private Integer isDeleted;
+    private LocalDateTime deleteTime;
 }

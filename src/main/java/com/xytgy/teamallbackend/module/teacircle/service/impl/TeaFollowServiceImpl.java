@@ -11,6 +11,12 @@ import com.xytgy.teamallbackend.module.teacircle.repository.TeaFollowMapper;
 import com.xytgy.teamallbackend.module.teacircle.service.TeaFollowService;
 import com.xytgy.teamallbackend.module.teacircle.service.TeaNotificationService;
 import com.xytgy.teamallbackend.module.teacircle.vo.SimpleUserVO;
+import com.xytgy.teamallbackend.module.teacircle.vo.UserProfileVO;
+import com.xytgy.teamallbackend.module.teacircle.entity.TeaPost;
+import com.xytgy.teamallbackend.module.teacircle.repository.TeaPostMapper;
+import com.xytgy.teamallbackend.module.teacircle.repository.TeaLikeMapper;
+import com.xytgy.teamallbackend.module.teacircle.entity.TeaLike;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.xytgy.teamallbackend.module.user.entity.User;
 import com.xytgy.teamallbackend.module.user.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,10 +31,20 @@ import java.util.stream.Collectors;
 @Service
 public class TeaFollowServiceImpl extends ServiceImpl<TeaFollowMapper, TeaFollow> implements TeaFollowService {
 
-    @Autowired
-    private UserService userService;
-    @Autowired
-    private TeaNotificationService teaNotificationService;
+    private final UserService userService;
+
+    private final TeaNotificationService teaNotificationService;
+    
+    private final TeaPostMapper teaPostMapper;
+    
+    private final TeaLikeMapper teaLikeMapper;
+
+    public TeaFollowServiceImpl(UserService userService, TeaNotificationService teaNotificationService, TeaPostMapper teaPostMapper, TeaLikeMapper teaLikeMapper) {
+        this.userService = userService;
+        this.teaNotificationService = teaNotificationService;
+        this.teaPostMapper = teaPostMapper;
+        this.teaLikeMapper = teaLikeMapper;
+    }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -61,6 +77,47 @@ public class TeaFollowServiceImpl extends ServiceImpl<TeaFollowMapper, TeaFollow
         Map<String, Boolean> res = new HashMap<>();
         res.put("isFollowing", isFollowing);
         return res;
+    }
+
+    @Override
+    public UserProfileVO getUserProfile(Long currentUserId, Long targetUserId) {
+        User targetUser = userService.getById(targetUserId);
+        if (targetUser == null || targetUser.getIsDeleted() == 1) {
+            throw new ServiceException(ResultCode.NOT_FOUND, "用户不存在");
+        }
+
+        // 关注数
+        long followingCount = this.count(new LambdaQueryWrapper<TeaFollow>()
+                .eq(TeaFollow::getFollowerId, targetUserId));
+
+        // 粉丝数
+        long followersCount = this.count(new LambdaQueryWrapper<TeaFollow>()
+                .eq(TeaFollow::getFollowingId, targetUserId));
+
+        // 获赞数：统计该用户发布的所有动态被点赞的总数
+        // 1. 找出该用户所有的动态 ID
+        List<TeaPost> posts = teaPostMapper.selectList(new LambdaQueryWrapper<TeaPost>()
+                .eq(TeaPost::getUserId, targetUserId)
+                .eq(TeaPost::getIsDeleted, 0)
+                .select(TeaPost::getId));
+        
+        long likeReceivedCount = 0;
+        if (posts != null && !posts.isEmpty()) {
+            List<Long> postIds = posts.stream().map(TeaPost::getId).collect(Collectors.toList());
+            likeReceivedCount = teaLikeMapper.selectCount(new LambdaQueryWrapper<TeaLike>()
+                    .in(TeaLike::getPostId, postIds));
+        }
+
+        return UserProfileVO.builder()
+                .id(targetUser.getId())
+                .nickname(targetUser.getNickname() != null ? targetUser.getNickname() : targetUser.getUserAccount())
+                .avatar(targetUser.getAvatar())
+                .bio("") // 若有相关字段可填充
+                .followingCount((int) followingCount)
+                .followersCount((int) followersCount)
+                .likeReceivedCount((int) likeReceivedCount)
+                .isFollowing(currentUserId != null ? isFollowing(currentUserId, targetUserId) : false)
+                .build();
     }
 
     @Override

@@ -11,7 +11,7 @@ import com.xytgy.teamallbackend.module.teacircle.vo.TeaCommentVO;
 import com.xytgy.teamallbackend.module.teacircle.vo.TeaPostVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -19,19 +19,17 @@ import java.util.Map;
 @RestController
 @Tag(name = "茶友圈 - 动态与评论")
 @RequestMapping("/api/tea-circle/posts")
+@RequiredArgsConstructor
 public class TeaCirclePostController {
 
-    @Autowired
-    private TeaPostService teaPostService;
-    @Autowired
-    private TeaCommentService teaCommentService;
+    private final TeaPostService teaPostService;
+    private final TeaCommentService teaCommentService;
 
     @PostMapping
     @Operation(summary = "发布动态")
-    public Result<Void> addPost(@RequestBody TeaPostAddRequest request) {
+    public Result<TeaPostVO> addPost(@RequestBody TeaPostAddRequest request) {
         Long userId = UserContext.getCurrentUserId();
-        teaPostService.addPost(userId, request);
-        return Result.success(null);
+        return Result.success(teaPostService.addPost(userId, request));
     }
 
     @GetMapping("/explore")
