@@ -49,11 +49,7 @@ public class MerchantGoodsController {
     }
 
     private void requireRole(Integer expectRole) {
-        Map<String, Object> user = UserContext.getUser();
-        Integer role = null;
-        if (user != null && user.get("role") != null) {
-            role = Integer.valueOf(String.valueOf(user.get("role")));
-        }
+        Integer role = UserContext.getRole();
         if (!expectRole.equals(role)) {
             throw new ServiceException(ResultCode.FORBIDDEN, "无权限访问");
         }

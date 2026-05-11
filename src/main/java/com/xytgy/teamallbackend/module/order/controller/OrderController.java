@@ -117,16 +117,6 @@ public class OrderController {
 
     @PostMapping("/cancel/{orderId}")
     @Operation(summary = "取消订单")
-    @ApiResponses({
-            @ApiResponse(
-                    responseCode = "200",
-                    description = "成功",
-                    content = @Content(examples = @ExampleObject(value = "{\"code\":200,\"message\":\"成功\",\"data\":null}"))
-            ),
-            @ApiResponse(responseCode = "400", description = "状态非法流转"),
-            @ApiResponse(responseCode = "404", description = "订单不存在"),
-            @ApiResponse(responseCode = "401", description = "未登录")
-    })
     public Result<Void> cancel(@PathVariable Long orderId) {
         Long userId = currentUserId();
         ordersService.cancelOrder(userId, orderId);
@@ -208,11 +198,7 @@ public class OrderController {
     }
 
     private void requireRole(Integer expectRole) {
-        Map<String, Object> user = UserContext.getUser();
-        Integer role = null;
-        if (user != null && user.get("role") != null) {
-            role = Integer.valueOf(String.valueOf(user.get("role")));
-        }
+        Integer role = UserContext.getRole();
         if (!expectRole.equals(role)) {
             throw new ServiceException(ResultCode.FORBIDDEN, "无权限访问");
         }

@@ -23,9 +23,6 @@ import org.springframework.web.multipart.MultipartFile;
 public class FileUploadController {
 
     private final AliyunOSSUtils aliyunOSSUtils;
-    // 可以在 application.yaml 中配置上传目录，默认在项目根目录的 uploads 文件夹下
-    @Value("${upload.dir:uploads/images/}")
-    private String uploadDir;
 
     @PostMapping("/upload")
     @Operation(summary = "通用图片文件上传接口")

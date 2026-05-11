@@ -90,7 +90,6 @@ tea-mall-backend
 
 1.  **数据库初始化**：
     *   在 MySQL 中创建数据库 `cloud_tea_db`：`CREATE DATABASE cloud_tea_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;`
-    *   依次执行 `docs/sql/` 目录下的 SQL 脚本完成建表和测试数据的导入。
 2.  **修改配置文件**：
     *   打开 `src/main/resources/application.yaml` (或对应环境的 `application-dev.yaml`)。
     *   确认并修改 `spring.datasource` 下的数据库账号与密码。

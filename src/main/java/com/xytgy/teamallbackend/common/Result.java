@@ -16,17 +16,13 @@ public class Result<T> implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L;
 
-    @Schema(description = "请求是否成功（true=成功，false=失败）", example = "true")
     private Boolean success;
 
-    @Schema(description = "状态码", example = "200")
     private Integer code;
 
-    @Schema(description = "错误信息（失败时返回，成功时为null）", example = "操作成功")
     private String message;
 
-    @Schema(description = "响应数据（成功时返回具体数据，失败时为null）")//错误信息
-    private T data; //数据
+    private T data;
 
     public static <T> Result<T> success(String message, T data) {
         return build(true, ResultCode.SUCCESS.getCode(), message, data);
@@ -34,6 +30,14 @@ public class Result<T> implements Serializable {
 
     public static <T> Result<T> success(T data) {
         return build(true, ResultCode.SUCCESS.getCode(), ResultCode.SUCCESS.getMessage(), data);
+    }
+
+    public static <T> Result<T> success() {
+        return build(true, ResultCode.SUCCESS.getCode(), ResultCode.SUCCESS.getMessage(), null);
+    }
+
+    public static <T> Result<T> success(String message) {
+        return build(true, ResultCode.SUCCESS.getCode(), message, null);
     }
 
     public static <T> Result<T> error(Integer code, String message) {

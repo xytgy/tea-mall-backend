@@ -1,83 +1,96 @@
 package com.xytgy.teamallbackend.config;
 
 
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xytgy.teamallbackend.common.CurrentUser;
 import com.xytgy.teamallbackend.common.UserContext;
 import com.xytgy.teamallbackend.module.user.service.UserService;
 import com.xytgy.teamallbackend.utils.JwtUtils;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.jsonwebtoken.ExpiredJwtException;
+import io.jsonwebtoken.MalformedJwtException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
+import org.springframework.http.HttpHeaders;
 
+import java.security.SignatureException;
 import java.util.HashMap;
 import java.util.Map;
 
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class JwtInterceptor implements HandlerInterceptor {
 
     private final JwtUtils jwtUtils;
-    private final ObjectMapper objectMapper;
-    private final UserService userService;
     private final StringRedisTemplate stringRedisTemplate;
-
+    private final ObjectMapper objectMapper;
     private static final String LOGIN_USER_KEY_PREFIX = "login:user:";
+    private final UserService userService;
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
-        // 放行 OPTIONS 请求
-        if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
+
+        if ("OPTIONS".equals(request.getMethod())) {
             return true;
         }
+        String authHeader = request.getHeader(HttpHeaders.AUTHORIZATION);
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            writeUnauthorized(response, 401, "未提供登录凭证");
+            return false;
+        }
 
-        String token = request.getHeader("Authorization");
-        if (token != null && token.startsWith("Bearer ")) {
-            token = token.substring(7);
-            try {
-                // 对 AccessToken 进行解析
-                Map<String, Object> claims = jwtUtils.parseToken(token);
-                
-                Long userId = Long.valueOf(claims.get("id").toString());
-
-                // 1. 检查 Redis 中的在线状态
-                if (Boolean.FALSE.equals(stringRedisTemplate.hasKey(LOGIN_USER_KEY_PREFIX + userId))) {
-                    writeUnauthorized(response, 401, "登录已失效，请重新登录");
-                    return false;
-                }
-
-                // 2. 检查用户是否被禁用
-                if (!userService.isUserEnabled(userId)) {
-                    writeUnauthorized(response, 401, "您的账号状态异常或已被封禁，请重新登录");
-                    return false;
-                }
-
-                // 存入用户信息，实现全局可访问 + 线程隔离
-                UserContext.setUser(claims);
-                return true;
-            } catch (ExpiredJwtException e) {
-                // AccessToken 过期，告知前端触发刷新 Token 逻辑
-                writeUnauthorized(response, 10002, "TOKEN_EXPIRED");
-                return false;
-            } catch (Exception e) {
-                writeUnauthorized(response, 401, "登录状态无效，请重新登录");
+        String token = authHeader.substring(7);
+        try {
+            //解析token里携带的信息
+            Map<String, Object> claim = jwtUtils.parseToken(token);
+            Object userIdObj = claim.get("userId");
+            if (userIdObj == null) {
+                writeUnauthorized(response, 401, "Token 格式错误");
                 return false;
             }
+            Long userId = Long.valueOf(userIdObj.toString());
+
+            Boolean hasKey = stringRedisTemplate.hasKey(LOGIN_USER_KEY_PREFIX + userId);
+            if (Boolean.FALSE.equals(hasKey)) {
+                writeUnauthorized(response, 401, "登录已失效，请重新登录");
+                return false;
+            }
+
+            if (!userService.isUserEnabled(userId)) {
+                writeUnauthorized(response, 401, "账号已禁用，请联系管理员");
+                return false;
+            }
+
+            UserContext.setUser(CurrentUser.fromClaims(claim));
+            return true;
+        } catch (ExpiredJwtException e) {
+            log.debug("Token 已过期: {}", e.getMessage());
+            writeUnauthorized(response, 10002, "TOKEN_EXPIRED");
+            return false;
+        } catch (MalformedJwtException | SignatureException e) {
+            log.warn("Token 无效: {}", e.getMessage());
+            writeUnauthorized(response, 401, "Token 无效");
+            return false;
+        } catch (Exception e) {
+            log.error("JWT 验证失败", e);
+            writeUnauthorized(response, 401, "登录状态验证失败");
+            return false;
         }
-        writeUnauthorized(response, 401, "未登录或令牌缺失");
-        return false;
+
     }
 
     @Override
-    public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) throws Exception {
+    public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex)  {
         UserContext.clear();
     }
 
 
-    // 当用户未授权时，手动返回一个 JSON 响应给前端
     private void writeUnauthorized(HttpServletResponse response, int code, String msg) throws Exception {
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         response.setCharacterEncoding("UTF-8");

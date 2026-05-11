@@ -37,6 +37,7 @@ public interface CopyMapper {
     /**
      * User 模块
      */
+    //这是进
     User toUser(RegisterRequest request);
     User toUser(LoginRequest request);
     User toUser(AdminUserAddRequest request);
@@ -83,12 +84,10 @@ public interface CopyMapper {
     List<OrderItemVO> toOrderItemVOList(List<OrderItem> items);
 
     @Mapping(target = ".", source = "order")
-    @Mapping(source = "order.id", target = "id")
     @Mapping(source = "items", target = "items")
     OrderVO toOrderVO(Orders order, List<OrderItem> items);
 
     @Mapping(target = ".", source = "order")
-    @Mapping(source = "order.id", target = "id")
     @Mapping(source = "items", target = "items")
     MerchantOrderVO toMerchantOrderVO(Orders order, List<OrderItem> items);
 

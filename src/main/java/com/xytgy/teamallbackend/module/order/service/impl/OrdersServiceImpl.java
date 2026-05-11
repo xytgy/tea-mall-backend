@@ -4,10 +4,13 @@ import com.alipay.api.AlipayApiException;
 import com.alipay.api.AlipayClient;
 import com.alipay.api.domain.AlipayTradeCloseModel;
 import com.alipay.api.domain.AlipayTradeRefundModel;
+import com.alipay.api.domain.AlipayTradeQueryModel;
 import com.alipay.api.request.AlipayTradeCloseRequest;
 import com.alipay.api.request.AlipayTradeRefundRequest;
+import com.alipay.api.request.AlipayTradeQueryRequest;
 import com.alipay.api.response.AlipayTradeCloseResponse;
 import com.alipay.api.response.AlipayTradeRefundResponse;
+import com.alipay.api.response.AlipayTradeQueryResponse;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.xytgy.teamallbackend.common.ResultCode;
 import com.xytgy.teamallbackend.common.mapstruct.CopyMapper;
@@ -200,17 +203,53 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         
         PaymentRecord payingRecord = paymentRecordService.getLastPayingRecord(order.getId());
         if (payingRecord != null && Objects.equals(payingRecord.getStatus(), "PAYING")) {
-            AlipayTradeCloseRequest closeRequest = new AlipayTradeCloseRequest();
-            AlipayTradeCloseModel model = new AlipayTradeCloseModel();
-            model.setOutTradeNo(payingRecord.getOutTradeNo());
-            closeRequest.setBizModel(model);
             try {
-                AlipayTradeCloseResponse closeResponse = alipayClient.execute(closeRequest);
-                if (!closeResponse.isSuccess()) {
-                    throw new ServiceException(ResultCode.ERROR, "支付宝关单失败: " + closeResponse.getSubMsg());
+                AlipayTradeQueryRequest queryRequest = new AlipayTradeQueryRequest();
+                AlipayTradeQueryModel queryModel = new AlipayTradeQueryModel();
+                queryModel.setOutTradeNo(payingRecord.getOutTradeNo());
+                queryRequest.setBizModel(queryModel);
+                
+                AlipayTradeQueryResponse queryResponse = alipayClient.execute(queryRequest);
+                if (queryResponse.isSuccess()) {
+                    String tradeStatus = queryResponse.getTradeStatus();
+                    if ("TRADE_SUCCESS".equals(tradeStatus) || "TRADE_FINISHED".equals(tradeStatus)) {
+                        throw new ServiceException(ResultCode.BAD_REQUEST, "该订单已完成支付，无法取消；如需撤销请在订单中发起退款。");
+                    }
+                    if ("TRADE_CLOSED".equals(tradeStatus)) {
+                        payingRecord.setStatus("CLOSED");
+                        paymentRecordService.updateById(payingRecord);
+                    } else {
+                        AlipayTradeCloseRequest closeRequest = new AlipayTradeCloseRequest();
+                        AlipayTradeCloseModel closeModel = new AlipayTradeCloseModel();
+                        closeModel.setOutTradeNo(payingRecord.getOutTradeNo());
+                        closeRequest.setBizModel(closeModel);
+                        
+                        AlipayTradeCloseResponse closeResponse = alipayClient.execute(closeRequest);
+                        if (!closeResponse.isSuccess()) {
+                            AlipayTradeQueryResponse queryResponse2 = alipayClient.execute(queryRequest);
+                            if (queryResponse2.isSuccess()) {
+                                String tradeStatus2 = queryResponse2.getTradeStatus();
+                                if ("TRADE_SUCCESS".equals(tradeStatus2) || "TRADE_FINISHED".equals(tradeStatus2)) {
+                                    throw new ServiceException(ResultCode.BAD_REQUEST, "该订单已完成支付，无法取消；如需撤销请在订单中发起退款。");
+                                }
+                                if ("TRADE_CLOSED".equals(tradeStatus2)) {
+                                    payingRecord.setStatus("CLOSED");
+                                    paymentRecordService.updateById(payingRecord);
+                                    closeResponse = null;
+                                }
+                            }
+                            if (closeResponse != null) {
+                                throw new ServiceException(ResultCode.ERROR, "支付宝关单失败: " + closeResponse.getSubMsg());
+                            }
+                        } else {
+                            payingRecord.setStatus("CLOSED");
+                            paymentRecordService.updateById(payingRecord);
+                        }
+                    }
+                } else {
+                    payingRecord.setStatus("CLOSED");
+                    paymentRecordService.updateById(payingRecord);
                 }
-                payingRecord.setStatus("CLOSED");
-                paymentRecordService.updateById(payingRecord);
             } catch (AlipayApiException e) {
                 throw new ServiceException(ResultCode.ERROR, "支付宝关单异常: " + e.getMessage());
             }

@@ -3,39 +3,47 @@ package com.xytgy.teamallbackend.common;
 import java.util.Map;
 
 public class UserContext {
-    private static final ThreadLocal<Map<String, Object>> userThreadLocal = new ThreadLocal<>();
+    private static final ThreadLocal<CurrentUser> userThreadLocal = new ThreadLocal<>();
 
     //ThreadLocal存当前的请求的用户信息，实现全局可访问 + 线程隔离
-    public static void setUser(Map<String, Object> user) {
+    public static void setUser(CurrentUser user) {
         userThreadLocal.set(user);
     }
 
-    public static Map<String, Object> getUser() {
+    public static CurrentUser getUser() {
         return userThreadLocal.get();
     }
 
     public static Long getCurrentUserId() {
-        Map<String, Object> user = getUser();
-        if (user != null && user.get("id") != null) {
-            return Long.valueOf(user.get("id").toString());
+        CurrentUser user = getUser();
+        if (user != null) {
+            return user.getId();
         }
         return null;
     }
 
     public static Long getShopId() {
-        Map<String, Object> user = getUser();
-        if (user != null && user.get("shopId") != null) {
-            return Long.valueOf(user.get("shopId").toString());
+        CurrentUser user = getUser();
+        if (user != null) {
+            return user.getShopId();
         }
         return null;
     }
 
     public static void setShopId(Long shopId) {
-        Map<String, Object> user = getUser();
+        CurrentUser user = getUser();
         if (user != null && shopId != null) {
-            user.put("shopId", shopId);
+            user.setShopId(shopId);
             setUser(user);
         }
+    }
+
+    public static Integer getRole() {
+        CurrentUser user = getUser();
+        if (user != null) {
+            return user.getRole();
+        }
+        return null;
     }
 
     public static void clear() {

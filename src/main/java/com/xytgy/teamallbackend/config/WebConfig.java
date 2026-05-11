@@ -1,11 +1,12 @@
 package com.xytgy.teamallbackend.config;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
-
 import java.io.File;
 
 @Configuration
@@ -13,6 +14,29 @@ import java.io.File;
 public class WebConfig implements WebMvcConfigurer {
 
     private final JwtInterceptor jwtInterceptor;
+
+    @Value("${cors.allowed-origins:*}")
+    private String[] allowedOrigins;
+
+    @Value("${cors.allow-credentials:false}")
+    private boolean allowCredentials;
+
+    /**
+     * 跨域配置（替代 CorsConfig）
+     */
+    @Override
+    public void addCorsMappings(CorsRegistry registry) {
+        registry.addMapping("/**")
+                .allowedOriginPatterns(allowedOrigins)
+                .allowedMethods("*")
+                .allowedHeaders("*")
+                .allowCredentials(allowCredentials)
+                .maxAge(3600);
+    }
+
+    /**
+     * 拦截器配置
+     */
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
@@ -23,7 +47,7 @@ public class WebConfig implements WebMvcConfigurer {
                         "/api/auth/register",
                         "/api/user/refresh/token",
                         "/api/product/list",
-                        "/api/product/list/**", // 兼容带参数或后缀的情况
+                        "/api/product/list/**",
                         "/api/product/reviews",
                         "/api/store/**",
                         "/api/tea-circle/topics",
@@ -34,19 +58,15 @@ public class WebConfig implements WebMvcConfigurer {
                         "/swagger-ui.html",
                         "/doc.html",
                         "/webjars/**",
-                        "/uploads/**", // 排除图片静态资源路径拦截
-                        "/ws/**" // 排除 WebSocket 路径拦截，让 WebSocketHandler 自己做鉴权
-                );
+                        "/uploads/**",
+                        "/ws/**");
     }
 
+    /**
+     * 静态资源映射
+     */
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
-        // 配置本地静态资源映射，将 /uploads/** 请求映射到本地绝对路径
-        String uploadPath = new File("uploads/").getAbsolutePath() + File.separator;
-        registry.addResourceHandler("/uploads/**")
-                .addResourceLocations("file:" + uploadPath);
-
-        // 解决 Knife4j doc.html 404 问题
         registry.addResourceHandler("doc.html")
                 .addResourceLocations("classpath:/META-INF/resources/");
         registry.addResourceHandler("/webjars/**")
