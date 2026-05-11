@@ -39,7 +39,6 @@ public interface CopyMapper {
      */
     //这是进
     User toUser(RegisterRequest request);
-    User toUser(LoginRequest request);
     User toUser(AdminUserAddRequest request);
     
     UserVO toUserVO(User user);

@@ -1,7 +1,9 @@
 package com.xytgy.teamallbackend.exception;
 
 import com.xytgy.teamallbackend.common.ResultCode;
+import lombok.Getter;
 
+@Getter
 public class ServiceException extends RuntimeException {
     private final Integer code;
 
@@ -25,7 +27,5 @@ public class ServiceException extends RuntimeException {
         this.code = resultCode.getCode();
     }
 
-    public Integer getCode() {
-        return code;
-    }
+
 }

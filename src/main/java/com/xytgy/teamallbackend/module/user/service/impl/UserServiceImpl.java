@@ -15,12 +15,10 @@ import com.xytgy.teamallbackend.utils.PasswordUtil;
 import com.xytgy.teamallbackend.module.user.vo.LoginResponse;
 import com.xytgy.teamallbackend.module.user.vo.UserOverviewStatsVO;
 import com.xytgy.teamallbackend.module.user.vo.UserVO;
-import com.xytgy.teamallbackend.module.favorite.service.FavoriteService;
-import com.xytgy.teamallbackend.module.order.service.OrdersService;
-import com.xytgy.teamallbackend.module.support.service.SupportService;
 import com.xytgy.teamallbackend.module.favorite.entity.Favorite;
 import com.xytgy.teamallbackend.module.order.entity.Orders;
 import com.xytgy.teamallbackend.module.support.entity.SupportTicket;
+import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import com.xytgy.teamallbackend.module.user.dto.LoginRequest;
 import com.xytgy.teamallbackend.common.mapstruct.CopyMapper;
@@ -49,9 +47,9 @@ import com.xytgy.teamallbackend.module.user.vo.UserInfoVO;
 * @description 针对表【user】的数据库操作Service实现
 * @createDate 2026-04-15 07:59:22
 */
-import org.springframework.context.annotation.Lazy;
 
 @Service
+@RequiredArgsConstructor
 public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     implements UserService{
     private static final String USER_STATUS_KEY_PREFIX = "user:status:";
@@ -63,64 +61,37 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     private final CopyMapper copyMapper;
     private final ShopService shopService;
     private final AliyunOssUtil aliyunOssUtil;
-    private final FavoriteService favoriteService;
-    private final OrdersService ordersService;
-    private final SupportService supportService;
-
-    public UserServiceImpl(
-            JwtUtils jwtUtils,
-            StringRedisTemplate stringRedisTemplate,
-            CopyMapper copyMapper,
-            ShopService shopService,
-            AliyunOssUtil aliyunOssUtil,
-            @Lazy FavoriteService favoriteService,
-            @Lazy OrdersService ordersService,
-            @Lazy SupportService supportService
-    ) {
-        this.jwtUtils = jwtUtils;
-        this.stringRedisTemplate = stringRedisTemplate;
-        this.copyMapper = copyMapper;
-        this.shopService = shopService;
-        this.aliyunOssUtil = aliyunOssUtil;
-        this.favoriteService = favoriteService;
-        this.ordersService = ordersService;
-        this.supportService = supportService;
-    }
+    private final UserLazyDeps userLazyDeps;
 
     @Override
     public LoginResponse login(LoginRequest request) {
         if (request == null || !StringUtils.hasText(request.getUserAccount()) || !StringUtils.hasText(request.getPassword())) {
-            throw new ServiceException(ResultCode.BAD_REQUEST, "账号和密码不能为空");
+            throw new ServiceException(ResultCode.BAD_REQUEST,"账号密码不能为空");
         }
-        User paramUser = copyMapper.toUser(request);
-        String userAccount = paramUser.getUserAccount();
-        String password = paramUser.getPassword();
+        String userAccount = request.getUserAccount();
+        String password = request.getPassword();
 
         QueryWrapper<User> queryWrapper = new QueryWrapper<>();
         queryWrapper.eq("useraccount", userAccount);
         User user = this.getOne(queryWrapper);
-
         if (user == null) {
-            throw new ServiceException(ResultCode.UNAUTHORIZED, "账号或密码错误");
+            throw new ServiceException(ResultCode.UNAUTHORIZED,"账号或密码错误");
         }
-
         if (!isUserEnabled(user.getId())) {
-            throw new ServiceException(ResultCode.FORBIDDEN, "账号已被禁用，请联系管理员");
+            throw new ServiceException(ResultCode.FORBIDDEN,"");
         }
 
         String dbPassword = user.getPassword();
-        boolean passwordMatched = PasswordUtil.match(password, dbPassword);
-        // 兼容历史明文密码数据，登录成功后自动升级为加密存储
+        Boolean passwordMatched = PasswordUtil.match(password, dbPassword);
+        //明码兼容
         if (!passwordMatched && password.equals(dbPassword)) {
             passwordMatched = true;
             user.setPassword(PasswordUtil.encrypt(password));
             this.updateById(user);
         }
-
         if (!passwordMatched) {
             throw new ServiceException(ResultCode.UNAUTHORIZED, "账号或密码错误");
         }
-
         return createLoginResponse(user);
     }
 
@@ -478,16 +449,16 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
 
     @Override
     public UserOverviewStatsVO getUserOverviewStats(Long userId) {
-        long favoritesCount = favoriteService.lambdaQuery()
+        long favoritesCount = userLazyDeps.getFavoriteService().lambdaQuery()
                 .eq(Favorite::getUserId, userId)
                 .count();
 
-        long ordersCount = ordersService.lambdaQuery()
+        long ordersCount = userLazyDeps.getOrdersService().lambdaQuery()
                 .eq(Orders::getUserId, userId)
                 .ne(Orders::getStatus, 4) // 这里排除了“已取消(4)”状态的订单，按需调整
                 .count();
 
-        long consultsCount = supportService.lambdaQuery()
+        long consultsCount = userLazyDeps.getSupportService().lambdaQuery()
                 .eq(SupportTicket::getUserId, userId)
                 .count();
 

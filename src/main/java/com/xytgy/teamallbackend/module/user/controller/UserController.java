@@ -10,12 +10,14 @@ import com.xytgy.teamallbackend.module.user.vo.UserInfoVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import java.util.Map;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import com.xytgy.teamallbackend.module.user.vo.UserOverviewStatsVO;
 
 @RestController
 @Tag(name = "用户接口")
@@ -34,7 +36,7 @@ public class UserController {
 
     @GetMapping("/stats")
     @Operation(summary = "获取用户总览统计数据")
-    public Result<com.xytgy.teamallbackend.module.user.vo.UserOverviewStatsVO> getUserStats() {
+    public Result<UserOverviewStatsVO> getUserStats() {
         Long userId = UserContext.getCurrentUserId();
         if (userId == null) {
             throw new ServiceException(ResultCode.UNAUTHORIZED, "未登录");
@@ -52,7 +54,7 @@ public class UserController {
 
     @PostMapping("/avatar")
     @Operation(summary = "更新用户头像")
-    public Result<String> updateAvatar(@RequestBody java.util.Map<String, String> body) {
+    public Result<String> updateAvatar(@RequestBody Map<String, String> body) {
         Long userId = UserContext.getCurrentUserId();
         String avatarBase64 = body.get("avatarBase64");
         String avatarUrl = userService.updateAvatar(userId, avatarBase64);
