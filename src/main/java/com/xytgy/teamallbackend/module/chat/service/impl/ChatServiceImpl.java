@@ -11,6 +11,7 @@ import com.xytgy.teamallbackend.module.chat.repository.ChatSessionMapper;
 import com.xytgy.teamallbackend.module.chat.service.ChatService;
 import com.xytgy.teamallbackend.module.chat.vo.ChatMessageVO;
 import com.xytgy.teamallbackend.module.chat.vo.ChatSessionVO;
+import com.xytgy.teamallbackend.common.UserRole;
 import com.xytgy.teamallbackend.config.datasource.ReadOnly;
 import com.xytgy.teamallbackend.module.user.entity.User;
 import com.xytgy.teamallbackend.module.shop.service.ShopService;
@@ -155,12 +156,12 @@ public class ChatServiceImpl extends ServiceImpl<ChatMessageMapper, ChatMessage>
         Long buyerId = senderId;
         Long merchantId = receiverId;
         
-        if (sender.getRole() != null && sender.getRole() == 1) {
+        if (sender.getRole() != null && sender.getRole() == UserRole.MERCHANT.getCode()) {
             // sender是商家，获取对应的 shopId
             Long shopId = shopService.getShopIdByUserId(senderId);
             merchantId = shopId != null ? shopId : senderId;
             buyerId = receiverId;
-        } else if (receiver != null && receiver.getRole() != null && receiver.getRole() == 1) {
+        } else if (receiver != null && receiver.getRole() != null && receiver.getRole() == UserRole.MERCHANT.getCode()) {
             // receiver是商家，获取对应的 shopId
             Long shopId = shopService.getShopIdByUserId(receiverId);
             merchantId = shopId != null ? shopId : receiverId;
@@ -188,11 +189,11 @@ public class ChatServiceImpl extends ServiceImpl<ChatMessageMapper, ChatMessage>
         
         // 同样在保存时，如果是商家发的消息，把返回值的 senderId 修改为 shopId
         Long displaySenderId = message.getSenderId();
-        if (sender.getRole() != null && sender.getRole() == 1) {
+        if (sender.getRole() != null && sender.getRole() == UserRole.MERCHANT.getCode()) {
             displaySenderId = merchantId;
         }
         Long displayReceiverId = message.getReceiverId();
-        if (receiver != null && receiver.getRole() != null && receiver.getRole() == 1) {
+        if (receiver != null && receiver.getRole() != null && receiver.getRole() == UserRole.MERCHANT.getCode()) {
             displayReceiverId = merchantId;
         }
         

@@ -73,7 +73,7 @@ public class PaymentController {
         if (order == null || !order.getUserId().equals(userId)) {
             throw new ServiceException(ResultCode.NOT_FOUND, "订单不存在或无权操作");
         }
-        if (order.getStatus() != 0) { // 0:待支付
+        if (order.getStatus() != Orders.STATUS_PENDING_PAYMENT) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "订单状态不是待支付");
         }
 
@@ -120,8 +120,8 @@ public class PaymentController {
         paymentRecordService.updateById(record);
 
         Orders order = ordersService.getById(record.getOrderId());
-        if (order != null && order.getStatus() == 0) {
-            order.setStatus(1);
+        if (order != null && order.getStatus() == Orders.STATUS_PENDING_PAYMENT) {
+            order.setStatus(Orders.STATUS_PAID);
             order.setPaymentId(record.getId());
             order.setPayTime(LocalDateTime.now());
             ordersService.updateById(order);
@@ -200,7 +200,7 @@ public class PaymentController {
         if (order == null || !order.getUserId().equals(userId)) {
             throw new ServiceException(ResultCode.NOT_FOUND, "订单不存在");
         }
-        if (order.getStatus() > 0) {
+        if (order.getStatus() > Orders.STATUS_PENDING_PAYMENT) {
             return Result.success("支付状态", PaymentRecord.STATUS_PAID);
         }
 
@@ -250,7 +250,7 @@ public class PaymentController {
         if (order == null || !order.getUserId().equals(userId)) {
             throw new ServiceException(ResultCode.NOT_FOUND, "订单不存在");
         }
-        if (order.getStatus() != 0) {
+        if (order.getStatus() != Orders.STATUS_PENDING_PAYMENT) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "只能关闭待支付订单");
         }
 
@@ -271,7 +271,7 @@ public class PaymentController {
             }
         }
 
-        order.setStatus(4); // 4:已取消
+        order.setStatus(Orders.STATUS_CANCELLED);
         ordersService.updateById(order);
         return Result.success(null);
     }
@@ -286,7 +286,7 @@ public class PaymentController {
             throw new ServiceException(ResultCode.NOT_FOUND, "订单不存在或无权操作");
         }
 
-        if (order.getStatus() != 1 && order.getStatus() != 2) {
+        if (order.getStatus() != Orders.STATUS_PAID && order.getStatus() != Orders.STATUS_SHIPPED) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "订单状态不支持退款");
         }
 
@@ -327,7 +327,7 @@ public class PaymentController {
         try {
             AlipayTradeRefundResponse response = alipayClient.execute(request);
             if (response.isSuccess()) {
-                order.setStatus(7); // 假设7为已退款，原系统可能是别的值
+                order.setStatus(Orders.STATUS_REFUNDED);
                 ordersService.updateById(order);
                 record.setStatus(PaymentRecord.STATUS_REFUNDED);
                 paymentRecordService.updateById(record);

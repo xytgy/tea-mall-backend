@@ -106,7 +106,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             Long shopId = shopIdObj != null ? Long.valueOf(shopIdObj.toString()) : null;
 
             // 商家用户：校验 JWT 中的 shopId 是否与数据库一致，防止 shopId 伪造
-            if (role != null && role == 1 && shopId != null) {
+            if (role != null && role == UserRole.MERCHANT.getCode() && shopId != null) {
                 Long actualShopId = shopService.getShopIdByUserId(userId);
                 if (actualShopId == null || !actualShopId.equals(shopId)) {
                     log.warn("商家 shopId 不一致: userId={}, jwtShopId={}, dbShopId={}", userId, shopId, actualShopId);
@@ -139,8 +139,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private String toAuthority(Integer role) {
         if (role == null) return ROLE_USER;
         return switch (role) {
-            case 2 -> ROLE_ADMIN;
-            case 1 -> ROLE_MERCHANT;
+            case UserRole.CODE_ADMIN -> ROLE_ADMIN;
+            case UserRole.CODE_MERCHANT -> ROLE_MERCHANT;
             default -> ROLE_USER;
         };
     }

@@ -39,7 +39,7 @@ public class OrderTimeoutConsumer implements RocketMQListener<String> {
             }
 
             // 已支付或已取消，无需处理
-            if (!Objects.equals(order.getStatus(), 0)) {
+            if (!Objects.equals(order.getStatus(), Orders.STATUS_PENDING_PAYMENT)) {
                 log.info("订单超时处理：订单状态已变更, orderId={}, status={}", orderId, order.getStatus());
                 return;
             }

@@ -167,8 +167,8 @@ public class FlashOrderConsumer implements RocketMQListener<MessageExt> {
         order.setOrderNo(transactionId);
         order.setUserId(userId);
         order.setTotalAmount(flashPrice);
-        order.setStatus(0);
-        order.setSource(1);
+        order.setStatus(Orders.STATUS_PENDING_PAYMENT);
+        order.setSource(Orders.SOURCE_FLASH_SALE);
         order.setCreateTime(LocalDateTime.now());
 
         // P0#4: 库存扣减加乐观锁 WHERE stock > 0，防止 DB 库存变负数
@@ -224,8 +224,8 @@ public class FlashOrderConsumer implements RocketMQListener<MessageExt> {
             retryOrder.setOrderNo("FS" + UUID.randomUUID().toString().replace("-", ""));
             retryOrder.setUserId(original.getUserId());
             retryOrder.setTotalAmount(original.getTotalAmount());
-            retryOrder.setStatus(0);
-            retryOrder.setSource(1);
+            retryOrder.setStatus(Orders.STATUS_PENDING_PAYMENT);
+            retryOrder.setSource(Orders.SOURCE_FLASH_SALE);
             retryOrder.setCreateTime(LocalDateTime.now());
             transactionTemplate.executeWithoutResult(status -> {
                 ordersMapper.insert(retryOrder);
