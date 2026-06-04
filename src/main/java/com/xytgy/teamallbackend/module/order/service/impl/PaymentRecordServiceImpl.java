@@ -19,7 +19,7 @@ public class PaymentRecordServiceImpl extends ServiceImpl<PaymentRecordMapper, P
     public PaymentRecord getLastPayingRecord(Long orderId) {
         return this.getOne(new LambdaQueryWrapper<PaymentRecord>()
                 .eq(PaymentRecord::getOrderId, orderId)
-                .eq(PaymentRecord::getStatus, "PAYING")
+                .eq(PaymentRecord::getStatus, PaymentRecord.STATUS_PAYING)
                 .orderByDesc(PaymentRecord::getCreateTime)
                 .last("LIMIT 1"));
     }
@@ -28,7 +28,7 @@ public class PaymentRecordServiceImpl extends ServiceImpl<PaymentRecordMapper, P
     public PaymentRecord getLastPaidRecord(Long orderId) {
         return this.getOne(new LambdaQueryWrapper<PaymentRecord>()
                 .eq(PaymentRecord::getOrderId, orderId)
-                .eq(PaymentRecord::getStatus, "PAID")
+                .eq(PaymentRecord::getStatus, PaymentRecord.STATUS_PAID)
                 .orderByDesc(PaymentRecord::getPayTime)
                 .orderByDesc(PaymentRecord::getId)
                 .last("LIMIT 1"));

@@ -1,7 +1,9 @@
-package com.xytgy.teamallbackend.config;
+package com.xytgy.teamallbackend.config.websocket;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xytgy.teamallbackend.config.mq.MqConstants;
+import com.xytgy.teamallbackend.config.mq.MqProducer;
 import com.xytgy.teamallbackend.module.chat.service.ChatService;
 import com.xytgy.teamallbackend.module.chat.vo.ChatMessageVO;
 import com.xytgy.teamallbackend.utils.JwtUtils;
@@ -38,6 +40,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private final JwtUtils jwtUtils;
     private final ChatService chatService;
     private final ObjectMapper objectMapper;
+    private final MqProducer mqProducer;
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
@@ -121,21 +124,47 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
             ChatMessageVO savedMessage = chatService.saveMessage(userId, receiverId, content, msgType);
 
-            Integer role = (Integer) session.getAttributes().get(ATTR_ROLE);
-            Long shopId = (Long) session.getAttributes().get(ATTR_SHOP_ID);
-            boolean isMerchant = (role != null && role == 1) || shopId != null;
-            WebSocketSession receiverSession = isMerchant ? userSessions.get(receiverId) : shopSessions.get(receiverId);
-            if (receiverSession != null && receiverSession.isOpen() && receiverSession != session) {
-                Map<String, Object> response = new HashMap<>();
-                response.put("type", TYPE_RECEIVE_MSG);
-                response.put("data", savedMessage);
-                receiverSession.sendMessage(new TextMessage(objectMapper.writeValueAsString(response)));
-            }
+            // 通过 MQ 异步分发消息到接收方，解耦持久化与推送
+            Map<String, Object> dispatchMsg = new HashMap<>();
+            dispatchMsg.put("senderId", userId);
+            dispatchMsg.put("receiverId", receiverId);
+            dispatchMsg.put("messageId", savedMessage.getId());
+            dispatchMsg.put("content", content);
+            dispatchMsg.put("msgType", msgType);
+            mqProducer.send(MqConstants.TOPIC_CHAT_MESSAGE, MqConstants.TAG_MSG_DISPATCH,
+                    String.valueOf(savedMessage.getId()), dispatchMsg);
 
             Map<String, Object> ack = new HashMap<>();
             ack.put("type", TYPE_ACK_MSG);
             ack.put("data", savedMessage);
             session.sendMessage(new TextMessage(objectMapper.writeValueAsString(ack)));
+        }
+    }
+
+    /**
+     * 供 MQ Consumer 调用，将消息推送到接收方的 WebSocket 会话
+     */
+    public void dispatchToReceiver(Long receiverId, Long messageId, String content, Integer msgType) {
+        WebSocketSession receiverSession = userSessions.get(receiverId);
+        if (receiverSession == null) {
+            receiverSession = shopSessions.get(receiverId);
+        }
+        if (receiverSession == null || !receiverSession.isOpen()) {
+            log.debug("接收方不在线，跳过 WebSocket 推送, receiverId={}", receiverId);
+            return;
+        }
+        try {
+            Map<String, Object> response = new HashMap<>();
+            response.put("type", TYPE_RECEIVE_MSG);
+            Map<String, Object> data = new HashMap<>();
+            data.put("id", messageId);
+            data.put("senderId", null);
+            data.put("content", content);
+            data.put("msgType", msgType);
+            response.put("data", data);
+            receiverSession.sendMessage(new TextMessage(objectMapper.writeValueAsString(response)));
+        } catch (Exception e) {
+            log.error("WebSocket 推送消息失败, receiverId={}, messageId={}", receiverId, messageId, e);
         }
     }
 
@@ -209,5 +238,30 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /**
+     * 向指定用户推送通知消息（供其他模块复用，如秒杀失败通知）。
+     * 如果用户不在线则返回 false。
+     */
+    public boolean sendNotificationToUser(Long userId, String jsonPayload) {
+        WebSocketSession session = userSessions.get(userId);
+        if (session != null && session.isOpen()) {
+            try {
+                session.sendMessage(new TextMessage(jsonPayload));
+                return true;
+            } catch (Exception e) {
+                log.warn("WebSocket 推送通知失败, userId={}", userId, e);
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 判断用户是否在线
+     */
+    public boolean isUserOnline(Long userId) {
+        WebSocketSession session = userSessions.get(userId);
+        return session != null && session.isOpen();
     }
 }

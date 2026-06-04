@@ -11,13 +11,15 @@ import com.xytgy.teamallbackend.module.teacircle.vo.TeaNotificationVO;
 import com.xytgy.teamallbackend.module.user.entity.User;
 import com.xytgy.teamallbackend.module.user.service.UserService;
 import org.springframework.beans.BeanUtils;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.format.DateTimeFormatter;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -48,11 +50,22 @@ public class TeaNotificationServiceImpl extends ServiceImpl<TeaNotificationMappe
                 .eq(TeaNotification::getUserId, userId)
                 .orderByDesc(TeaNotification::getCreateTime));
 
-        List<TeaNotificationVO> records = p.getRecords().stream().map(n -> {
+        List<TeaNotification> notifications = p.getRecords();
+        if (notifications.isEmpty()) {
+            return new PageResult<>(Collections.emptyList(), 0, page, pageSize);
+        }
+
+        Set<Long> actorIds = notifications.stream()
+                .map(TeaNotification::getActorId)
+                .collect(Collectors.toSet());
+        Map<Long, User> actorMap = userService.listByIds(actorIds).stream()
+                .collect(Collectors.toMap(User::getId, Function.identity()));
+
+        List<TeaNotificationVO> records = notifications.stream().map(n -> {
             TeaNotificationVO vo = new TeaNotificationVO();
             BeanUtils.copyProperties(n, vo);
             vo.setCreateTime(n.getCreateTime() != null ? n.getCreateTime().format(FORMATTER) : null);
-            User actor = userService.getById(n.getActorId());
+            User actor = actorMap.get(n.getActorId());
             if (actor != null) {
                 com.xytgy.teamallbackend.module.teacircle.vo.AuthorVO authorVO = new com.xytgy.teamallbackend.module.teacircle.vo.AuthorVO();
                 authorVO.setId(actor.getId());
@@ -60,10 +73,9 @@ public class TeaNotificationServiceImpl extends ServiceImpl<TeaNotificationMappe
                 authorVO.setAvatar(actor.getAvatar());
                 vo.setActor(authorVO);
             }
-            // 可以根据 sourceId 查具体的点赞/评论内容，由于篇幅暂略，返回基本类型
             vo.setSourceContent("新" + n.getType() + "通知");
             return vo;
-        }).collect(Collectors.toList());
+        }).toList();
 
         return new PageResult<>(records, p.getTotal(), p.getCurrent(), p.getSize());
     }

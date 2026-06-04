@@ -16,13 +16,20 @@ import com.xytgy.teamallbackend.module.teacircle.service.TeaPostService;
 import com.xytgy.teamallbackend.module.teacircle.vo.TeaCommentVO;
 import com.xytgy.teamallbackend.module.user.entity.User;
 import com.xytgy.teamallbackend.module.user.service.UserService;
+import com.xytgy.teamallbackend.config.mq.MqConstants;
+import com.xytgy.teamallbackend.config.mq.MqProducer;
 import org.springframework.beans.BeanUtils;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -33,20 +40,22 @@ public class TeaCommentServiceImpl extends ServiceImpl<TeaCommentMapper, TeaComm
     private final TeaPostService teaPostService;
 
     private final TeaNotificationService teaNotificationService;
+    private final MqProducer mqProducer;
 
     private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-    public TeaCommentServiceImpl(TeaNotificationService teaNotificationService, TeaPostService teaPostService, UserService userService) {
+    public TeaCommentServiceImpl(TeaNotificationService teaNotificationService, TeaPostService teaPostService, UserService userService, MqProducer mqProducer) {
         this.teaNotificationService = teaNotificationService;
         this.teaPostService = teaPostService;
         this.userService = userService;
+        this.mqProducer = mqProducer;
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public TeaCommentVO addComment(Long userId, Long postId, TeaCommentAddRequest request) {
         TeaPost post = teaPostService.getById(postId);
-        if (post == null || post.getIsDeleted() == 1) {
+        if (post == null) {
             throw new ServiceException(ResultCode.NOT_FOUND, "动态不存在");
         }
 
@@ -57,21 +66,32 @@ public class TeaCommentServiceImpl extends ServiceImpl<TeaCommentMapper, TeaComm
         comment.setRootId(request.getRootId());
         comment.setParentId(request.getParentId());
         comment.setReplyToUserId(request.getReplyToUserId());
-        comment.setIsDeleted(0);
         this.save(comment);
 
-        // Update post comment count
-        int newCount = (post.getCommentCount() == null ? 0 : post.getCommentCount()) + 1;
-        post.setCommentCount(newCount);
-        teaPostService.updateById(post);
+        teaPostService.lambdaUpdate()
+                .eq(TeaPost::getId, postId)
+                .setSql("comment_count = COALESCE(comment_count, 0) + 1")
+                .update();
 
-        // Notify
+        // 通过 MQ 异步创建通知，降低核心评论链路耦合
         Long notifyUserId = request.getReplyToUserId() != null ? request.getReplyToUserId() : post.getUserId();
         if (!userId.equals(notifyUserId)) {
-            teaNotificationService.addNotification(notifyUserId, "comment", comment.getId(), userId);
+            Map<String, Object> notifyMsg = Map.of(
+                    "targetUserId", notifyUserId,
+                    "type", "comment",
+                    "sourceId", comment.getId(),
+                    "actorId", userId
+            );
+            mqProducer.send(MqConstants.TOPIC_TEA_NOTIFICATION, MqConstants.TAG_COMMENT,
+                    String.valueOf(comment.getId()), notifyMsg);
         }
 
-        return toVO(comment);
+        Set<Long> userIds = new HashSet<>();
+        userIds.add(userId);
+        if (request.getReplyToUserId() != null) userIds.add(request.getReplyToUserId());
+        Map<Long, User> userMap = userService.listByIds(userIds).stream()
+                .collect(Collectors.toMap(User::getId, Function.identity()));
+        return toVO(comment, userMap);
     }
 
     @Override
@@ -79,32 +99,51 @@ public class TeaCommentServiceImpl extends ServiceImpl<TeaCommentMapper, TeaComm
         Page<TeaComment> p = new Page<>(page, pageSize);
         LambdaQueryWrapper<TeaComment> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(TeaComment::getPostId, postId)
-               .eq(TeaComment::getIsDeleted, 0)
-               .isNull(TeaComment::getRootId) // 仅查一级评论
+               .isNull(TeaComment::getRootId)
                .orderByAsc(TeaComment::getCreateTime);
         this.page(p, wrapper);
 
-        List<TeaCommentVO> records = p.getRecords().stream().map(c -> {
-            TeaCommentVO vo = toVO(c);
-            // 查子评论
-            List<TeaComment> replies = this.lambdaQuery()
-                    .eq(TeaComment::getRootId, c.getId())
-                    .eq(TeaComment::getIsDeleted, 0)
-                    .orderByAsc(TeaComment::getCreateTime)
-                    .list();
-            vo.setChildren(replies.stream().map(this::toVO).collect(Collectors.toList()));
+        List<TeaComment> rootComments = p.getRecords();
+        if (rootComments.isEmpty()) {
+            return new PageResult<>(Collections.emptyList(), 0, page, pageSize);
+        }
+
+        Set<Long> rootIds = rootComments.stream().map(TeaComment::getId).collect(Collectors.toSet());
+        List<TeaComment> allReplies = this.lambdaQuery()
+                .in(TeaComment::getRootId, rootIds)
+                .orderByAsc(TeaComment::getCreateTime)
+                .list();
+        Map<Long, List<TeaComment>> replyMap = allReplies.stream()
+                .collect(Collectors.groupingBy(TeaComment::getRootId));
+
+        Set<Long> allUserIds = new HashSet<>();
+        rootComments.forEach(c -> {
+            allUserIds.add(c.getUserId());
+            if (c.getReplyToUserId() != null) allUserIds.add(c.getReplyToUserId());
+        });
+        allReplies.forEach(c -> {
+            allUserIds.add(c.getUserId());
+            if (c.getReplyToUserId() != null) allUserIds.add(c.getReplyToUserId());
+        });
+        Map<Long, User> userMap = userService.listByIds(allUserIds).stream()
+                .collect(Collectors.toMap(User::getId, Function.identity()));
+
+        List<TeaCommentVO> records = rootComments.stream().map(c -> {
+            TeaCommentVO vo = toVO(c, userMap);
+            List<TeaComment> replies = replyMap.getOrDefault(c.getId(), Collections.emptyList());
+            vo.setChildren(replies.stream().map(r -> toVO(r, userMap)).toList());
             return vo;
-        }).collect(Collectors.toList());
+        }).toList();
 
         return new PageResult<>(records, p.getTotal(), p.getCurrent(), p.getSize());
     }
 
-    private TeaCommentVO toVO(TeaComment comment) {
+    private TeaCommentVO toVO(TeaComment comment, Map<Long, User> userMap) {
         TeaCommentVO vo = new TeaCommentVO();
         BeanUtils.copyProperties(comment, vo);
         vo.setCreateTime(comment.getCreateTime() != null ? comment.getCreateTime().format(FORMATTER) : null);
-        
-        User u = userService.getById(comment.getUserId());
+
+        User u = userMap.get(comment.getUserId());
         if (u != null) {
             com.xytgy.teamallbackend.module.teacircle.vo.AuthorVO author = new com.xytgy.teamallbackend.module.teacircle.vo.AuthorVO();
             author.setId(u.getId());
@@ -113,9 +152,8 @@ public class TeaCommentServiceImpl extends ServiceImpl<TeaCommentMapper, TeaComm
             vo.setAuthor(author);
         }
 
-        // Set reply to user info if applicable
         if (comment.getReplyToUserId() != null) {
-            User target = userService.getById(comment.getReplyToUserId());
+            User target = userMap.get(comment.getReplyToUserId());
             if (target != null) {
                 com.xytgy.teamallbackend.module.teacircle.vo.AuthorVO replyAuthor = new com.xytgy.teamallbackend.module.teacircle.vo.AuthorVO();
                 replyAuthor.setId(target.getId());

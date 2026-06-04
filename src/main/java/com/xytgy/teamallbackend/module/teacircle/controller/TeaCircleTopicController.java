@@ -2,7 +2,7 @@ package com.xytgy.teamallbackend.module.teacircle.controller;
 
 import com.xytgy.teamallbackend.common.PageResult;
 import com.xytgy.teamallbackend.common.Result;
-import com.xytgy.teamallbackend.common.UserContext;
+import com.xytgy.teamallbackend.security.SecurityUtils;
 import com.xytgy.teamallbackend.module.teacircle.service.TeaPostService;
 import com.xytgy.teamallbackend.module.teacircle.service.TeaTopicService;
 import com.xytgy.teamallbackend.module.teacircle.vo.TeaTopicVO;
@@ -47,7 +47,7 @@ public class TeaCircleTopicController {
                                                        @RequestParam(defaultValue = "20") int pageSize) {
         Long currentUserId = null;
         try {
-            currentUserId = UserContext.getCurrentUserId();
+            currentUserId = SecurityUtils.getCurrentUserId();
         } catch (Exception e) {
             currentUserId = null;
         }

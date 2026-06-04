@@ -1,75 +1,51 @@
 package com.xytgy.teamallbackend.config;
 
-import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.web.servlet.config.annotation.CorsRegistry;
-import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+import org.springframework.core.io.Resource;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
-import java.io.File;
+import org.springframework.web.servlet.resource.PathResourceResolver;
+
+import java.io.IOException;
 
 @Configuration
-@RequiredArgsConstructor
 public class WebConfig implements WebMvcConfigurer {
 
-    private final JwtInterceptor jwtInterceptor;
+    // CORS 已迁移至 SecurityConfig.corsConfigurationSource()
 
-    @Value("${cors.allowed-origins:*}")
-    private String[] allowedOrigins;
-
-    @Value("${cors.allow-credentials:false}")
-    private boolean allowCredentials;
-
-    /**
-     * 跨域配置（替代 CorsConfig）
-     */
-    @Override
-    public void addCorsMappings(CorsRegistry registry) {
-        registry.addMapping("/**")
-                .allowedOriginPatterns(allowedOrigins)
-                .allowedMethods("*")
-                .allowedHeaders("*")
-                .allowCredentials(allowCredentials)
-                .maxAge(3600);
-    }
-
-    /**
-     * 拦截器配置
-     */
-
-    @Override
-    public void addInterceptors(InterceptorRegistry registry) {
-        registry.addInterceptor(jwtInterceptor)
-                .addPathPatterns("/**")
-                .excludePathPatterns(
-                        "/api/auth/login",
-                        "/api/auth/register",
-                        "/api/user/refresh/token",
-                        "/api/product/list",
-                        "/api/product/list/**",
-                        "/api/product/reviews",
-                        "/api/store/**",
-                        "/api/tea-circle/topics",
-                        "/api/tea-circle/campaigns/latest",
-                        "/api/feedback/submit",
-                        "/v3/api-docs/**",
-                        "/swagger-ui/**",
-                        "/swagger-ui.html",
-                        "/doc.html",
-                        "/webjars/**",
-                        "/uploads/**",
-                        "/ws/**");
-    }
-
-    /**
-     * 静态资源映射
-     */
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
+        // Knife4j / Swagger 静态资源映射
         registry.addResourceHandler("doc.html")
                 .addResourceLocations("classpath:/META-INF/resources/");
         registry.addResourceHandler("/webjars/**")
                 .addResourceLocations("classpath:/META-INF/resources/webjars/");
+
+        // SPA 路由回退：未匹配到具体文件的请求指向 static 目录，交由前端路由处理
+        registry.addResourceHandler("/**")
+                .addResourceLocations("classpath:/static/")
+                .resourceChain(true)
+                .addResolver(new PathResourceResolver() {
+                    @Override
+                    protected Resource getResource(String resourcePath, Resource location) throws IOException {
+                        Resource requestedResource = location.createRelative(resourcePath);
+
+                        if (requestedResource.exists() && requestedResource.isReadable()) {
+                            return requestedResource;
+                        }
+
+                        // 后端 API 和 Knife4j 资源不做前端路由拦截
+                        if (resourcePath.startsWith("api/") ||
+                            resourcePath.startsWith("v3/api-docs") ||
+                            resourcePath.startsWith("swagger-ui") ||
+                            resourcePath.startsWith("doc.html") ||
+                            resourcePath.startsWith("webjars")) {
+                            return null;
+                        }
+
+                        // 静态资源不存在时回退到 index.html，交给前端路由处理
+                        return location.createRelative("index.html");
+                    }
+                });
     }
 }

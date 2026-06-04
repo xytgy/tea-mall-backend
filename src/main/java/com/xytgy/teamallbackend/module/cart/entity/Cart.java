@@ -1,8 +1,8 @@
 package com.xytgy.teamallbackend.module.cart.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
-import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
 import java.time.LocalDateTime;
 import lombok.Data;
@@ -44,4 +44,10 @@ public class Cart {
      * 更新时间
      */
     private LocalDateTime updateTime;
+
+    /**
+     * 逻辑删除 0否 1是
+     */
+    @TableLogic
+    private Integer isDeleted;
 }

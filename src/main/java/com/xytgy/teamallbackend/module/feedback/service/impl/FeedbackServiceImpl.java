@@ -89,7 +89,7 @@ public class FeedbackServiceImpl extends ServiceImpl<FeedbackMapper, Feedback> i
                     .status(f.getStatus())
                     .createTime(f.getCreateTime() != null ? f.getCreateTime().format(formatter) : null)
                     .build();
-        }).collect(Collectors.toList());
+        }).toList();
 
         Map<String, Object> result = new HashMap<>();
         result.put("total", feedbackPage.getTotal());

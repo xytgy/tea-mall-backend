@@ -12,12 +12,11 @@ import com.xytgy.teamallbackend.module.user.repository.UserMapper;
 import com.xytgy.teamallbackend.module.user.service.UserService;
 import com.xytgy.teamallbackend.utils.JwtUtils;
 import com.xytgy.teamallbackend.utils.PasswordUtil;
+import com.xytgy.teamallbackend.utils.RateLimitService;
 import com.xytgy.teamallbackend.module.user.vo.LoginResponse;
 import com.xytgy.teamallbackend.module.user.vo.UserOverviewStatsVO;
 import com.xytgy.teamallbackend.module.user.vo.UserVO;
-import com.xytgy.teamallbackend.module.favorite.entity.Favorite;
-import com.xytgy.teamallbackend.module.order.entity.Orders;
-import com.xytgy.teamallbackend.module.support.entity.SupportTicket;
+import com.xytgy.teamallbackend.module.user.repository.UserStatsMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import com.xytgy.teamallbackend.module.user.dto.LoginRequest;
@@ -25,9 +24,9 @@ import com.xytgy.teamallbackend.common.mapstruct.CopyMapper;
 import com.xytgy.teamallbackend.module.user.dto.RegisterRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
-import com.xytgy.teamallbackend.common.UserContext;
+import com.xytgy.teamallbackend.security.SecurityUtils;
 import java.time.format.DateTimeFormatter;
-import com.xytgy.teamallbackend.utils.AliyunOssUtil;
+import com.xytgy.teamallbackend.utils.AliyunOSSUtils;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.util.Base64;
@@ -37,9 +36,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
-
 import com.xytgy.teamallbackend.module.shop.service.ShopService;
-
 import com.xytgy.teamallbackend.module.user.vo.UserInfoVO;
 
 /**
@@ -55,19 +52,36 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     private static final String USER_STATUS_KEY_PREFIX = "user:status:";
     private static final String LOGIN_USER_KEY_PREFIX = "login:user:";
     private static final String REFRESH_TOKEN_KEY_PREFIX = "login:refresh:token:";
+    /**
+     * 用户 Refresh Token 集合前缀，用于退出登录时批量撤销
+     * key: login:user:refresh:{userId}, value: Set of refreshTokens
+     */
+    private static final String USER_REFRESH_TOKENS_PREFIX = "login:user:refresh:";
 
     private final JwtUtils jwtUtils;
     private final StringRedisTemplate stringRedisTemplate;
     private final CopyMapper copyMapper;
     private final ShopService shopService;
-    private final AliyunOssUtil aliyunOssUtil;
-    private final UserLazyDeps userLazyDeps;
+    private final AliyunOSSUtils aliyunOSSUtils;
+    private final RateLimitService rateLimitService;
+    
+    private final UserStatsMapper userStatsMapper;
 
     @Override
-    public LoginResponse login(LoginRequest request) {
+    public LoginResponse login(LoginRequest request, String clientIp) {
         if (request == null || !StringUtils.hasText(request.getUserAccount()) || !StringUtils.hasText(request.getPassword())) {
             throw new ServiceException(ResultCode.BAD_REQUEST,"账号密码不能为空");
         }
+        
+        // 账号维度速率限制检查，防止暴力破解和撞库攻击
+        String identifier = request.getUserAccount();
+        if (rateLimitService.isAccountLocked(identifier)) {
+            throw new ServiceException(ResultCode.TOO_MANY_REQUESTS, "账号已被临时锁定，请15分钟后重试");
+        }
+        if (!rateLimitService.checkAccountRate(identifier)) {
+            throw new ServiceException(ResultCode.TOO_MANY_REQUESTS, "登录尝试过于频繁，请稍后再试");
+        }
+        
         String userAccount = request.getUserAccount();
         String password = request.getPassword();
 
@@ -81,17 +95,14 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             throw new ServiceException(ResultCode.FORBIDDEN,"");
         }
 
-        String dbPassword = user.getPassword();
-        Boolean passwordMatched = PasswordUtil.match(password, dbPassword);
-        //明码兼容
-        if (!passwordMatched && password.equals(dbPassword)) {
-            passwordMatched = true;
-            user.setPassword(PasswordUtil.encrypt(password));
-            this.updateById(user);
-        }
-        if (!passwordMatched) {
+        // 仅使用 BCrypt 验证密码，移除明文回退逻辑防止密码绕过攻击
+        if (!PasswordUtil.match(password, user.getPassword())) {
             throw new ServiceException(ResultCode.UNAUTHORIZED, "账号或密码错误");
         }
+        
+        // 登录成功，重置该账号的失败计数器，防止正常用户被误锁定
+        rateLimitService.resetAccountAttempts(identifier);
+        
         return createLoginResponse(user);
     }
 
@@ -108,8 +119,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             throw new ServiceException(ResultCode.UNAUTHORIZED, "RefreshToken 已过期或无效，请重新登录");
         }
 
-        // 校验通过，作废旧 Token
+        // 校验通过，作废旧 Token 及其在用户 Token 集合中的引用
         stringRedisTemplate.delete(key);
+        stringRedisTemplate.opsForSet().remove(USER_REFRESH_TOKENS_PREFIX + userIdStr, refreshToken);
 
         // 生成新的一对 Token
         Long userId = Long.valueOf(userIdStr);
@@ -149,6 +161,11 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
                 7, TimeUnit.DAYS // 默认 7 天，可以从配置读
         );
 
+        // 维护用户 -> RefreshToken 的反向映射，用于退出登录时批量撤销
+        String userTokensKey = USER_REFRESH_TOKENS_PREFIX + user.getId();
+        stringRedisTemplate.opsForSet().add(userTokensKey, refreshToken);
+        stringRedisTemplate.expire(userTokensKey, 7, TimeUnit.DAYS);
+
         // 存入 Redis (在线状态)
         stringRedisTemplate.opsForValue().set(
                 LOGIN_USER_KEY_PREFIX + user.getId(),
@@ -183,14 +200,14 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         QueryWrapper<User> queryWrapper = new QueryWrapper<>();
         queryWrapper.eq("useraccount", userAccount);
         if (this.count(queryWrapper) > 0) {
-            throw new ServiceException(ResultCode.CONFLICT, "该账号已被注册");
+            // 使用模糊提示，防止攻击者通过注册接口枚举已存在用户
+            throw new ServiceException(ResultCode.CONFLICT, "注册失败，请检查账号信息或尝试其他账号");
         }
 
         user.setPassword(PasswordUtil.encrypt(user.getPassword()));
         user.setPhone(user.getPhone() != null ? user.getPhone() : "");
         user.setRole(UserRole.USER.getCode()); // 默认普通用户
         user.setStatus(1); // 默认状态正常
-        user.setIsDeleted(0);
 
         this.save(user);
         cacheUserStatus(user.getId(), user.getStatus());
@@ -216,13 +233,28 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             throw new ServiceException(ResultCode.CONFLICT, "用户名已存在");
         }
 
+        // 生成随机 12 位临时密码，替代硬编码的 "123456"
+        String tempPassword = generateTempPassword();
+
         User user = copyMapper.toUser(request);
-        user.setPassword(PasswordUtil.encrypt("123456"));
+        user.setPassword(PasswordUtil.encrypt(tempPassword));
         user.setRole(toDbRole(request.getRole()));
-        user.setIsDeleted(0);
         this.save(user);
         cacheUserStatus(user.getId(), user.getStatus());
         return user.getId();
+    }
+
+    /**
+     * 生成包含大小写字母和数字的 12 位随机临时密码
+     */
+    private String generateTempPassword() {
+        String chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+        java.security.SecureRandom random = new java.security.SecureRandom();
+        StringBuilder sb = new StringBuilder(12);
+        for (int i = 0; i < 12; i++) {
+            sb.append(chars.charAt(random.nextInt(chars.length())));
+        }
+        return sb.toString();
     }
 
     /**
@@ -249,7 +281,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     public List<UserVO> listUsersByAdmin() {
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         return lambdaQuery()
-                .eq(User::getIsDeleted, 0)
                 .orderByDesc(User::getCreateTime)
                 .list()
                 .stream()
@@ -259,7 +290,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
                     vo.setCreateTime(user.getCreateTime() == null ? null : user.getCreateTime().format(formatter));
                     return vo;
                 })
-                .collect(Collectors.toList());
+                .toList();
     }
 
     @Override
@@ -271,7 +302,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             throw new ServiceException(ResultCode.BAD_REQUEST, "状态值非法");
         }
         User user = getById(id);
-        if (user == null || user.getIsDeleted() == 1) {
+        if (user == null) {
             throw new ServiceException(ResultCode.NOT_FOUND, "用户不存在");
         }
         user.setStatus(status);
@@ -297,7 +328,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
 
         //数据库进行查找，要是没有找到或者是逻辑删除，redis状态设置为0，然后返回
         User user = getById(id);
-        if (user == null || user.getIsDeleted() == 1) {
+        if (user == null) {
             cacheUserStatus(id, 0);
             return false;
         }
@@ -307,15 +338,28 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
 
     @Override
     public void logout() {
-        Long userId = UserContext.getCurrentUserId();
+        Long userId = SecurityUtils.getCurrentUserId();
         if (userId == null) {
             return;
         }
         // 清除在线状态
         stringRedisTemplate.delete(LOGIN_USER_KEY_PREFIX + userId);
-        
-        // 注意：因为 RefreshToken 是 UUID 作为 key 存的，我们目前没有维护 userId -> refreshToken 的反向映射。
-        // 由于只要删除了在线状态 (LOGIN_USER_KEY_PREFIX)，拦截器就会拦截所有请求，达到登出效果。
+        // 撤销该用户的所有 RefreshToken，防止退出后仍可刷新
+        revokeAllRefreshTokens(userId);
+    }
+
+    /**
+     * 撤销指定用户的所有 RefreshToken（退出登录、密码修改等场景复用）
+     */
+    private void revokeAllRefreshTokens(Long userId) {
+        String userTokensKey = USER_REFRESH_TOKENS_PREFIX + userId;
+        java.util.Set<String> tokens = stringRedisTemplate.opsForSet().members(userTokensKey);
+        if (tokens != null && !tokens.isEmpty()) {
+            for (String token : tokens) {
+                stringRedisTemplate.delete(REFRESH_TOKEN_KEY_PREFIX + token);
+            }
+        }
+        stringRedisTemplate.delete(userTokensKey);
     }
 
     @Override
@@ -324,7 +368,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             throw new ServiceException(ResultCode.UNAUTHORIZED, "未登录");
         }
         User user = this.getById(id);
-        if (user == null || user.getIsDeleted() == 1 || !isUserEnabled(id)) {
+        if (user == null || !isUserEnabled(id)) {
             throw new ServiceException(ResultCode.UNAUTHORIZED, "账号状态异常或已被封禁，请重新登录");
         }
 
@@ -398,7 +442,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
                 String fileName = "avatar_" + userId + extension;
                 
                 // 调用 OSS 工具类上传文件，并获取可访问的 URL
-                String avatarUrl = aliyunOssUtil.upload(inputStream, fileName);
+                String avatarUrl = aliyunOSSUtils.uploadAvatar(inputStream, fileName);
                 
                 // 更新数据库
                 user.setAvatar(avatarUrl);
@@ -441,7 +485,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             return;
         }
         try {
-            stringRedisTemplate.opsForValue().set(userStatusKey(userId), String.valueOf(status == null ? 1 : status));
+            stringRedisTemplate.opsForValue().set(
+                    userStatusKey(userId),
+                    String.valueOf(status == null ? 1 : status),
+                    30, java.util.concurrent.TimeUnit.MINUTES);
         } catch (Exception ignored) {
             // Redis 故障时不影响主流程
         }
@@ -449,18 +496,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
 
     @Override
     public UserOverviewStatsVO getUserOverviewStats(Long userId) {
-        long favoritesCount = userLazyDeps.getFavoriteService().lambdaQuery()
-                .eq(Favorite::getUserId, userId)
-                .count();
-
-        long ordersCount = userLazyDeps.getOrdersService().lambdaQuery()
-                .eq(Orders::getUserId, userId)
-                .ne(Orders::getStatus, 4) // 这里排除了“已取消(4)”状态的订单，按需调整
-                .count();
-
-        long consultsCount = userLazyDeps.getSupportService().lambdaQuery()
-                .eq(SupportTicket::getUserId, userId)
-                .count();
+        long favoritesCount = userStatsMapper.countFavorites(userId);
+        long ordersCount = userStatsMapper.countOrders(userId);
+        long consultsCount = userStatsMapper.countSupportTickets(userId);
 
         return UserOverviewStatsVO.builder()
                 .favorites((int) favoritesCount)

@@ -1,6 +1,7 @@
 package com.xytgy.teamallbackend.module.product.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
+import com.xytgy.teamallbackend.common.PageResult;
 import com.xytgy.teamallbackend.module.product.dto.MerchantGoodsAddRequest;
 import com.xytgy.teamallbackend.module.product.dto.ProductAddRequest;
 import com.xytgy.teamallbackend.module.product.dto.ProductAuditRequest;
@@ -19,9 +20,9 @@ import java.util.List;
 * @createDate 2026-04-14 20:05:50
 */
 public interface ProductService extends IService<Product> {
-    List<ProductVO> listAvailableProducts();
+    PageResult<ProductVO> listAvailableProducts(int page, int pageSize);
     Long addMerchantGoods(Long merchantId, MerchantGoodsAddRequest request);
-    List<ProductVO> listMerchantProducts(Long merchantId);
+    PageResult<ProductVO> listMerchantProducts(Long merchantId, int page, int pageSize);
     void addProduct(Long merchantId, ProductAddRequest request);
     void updateProduct(Long merchantId, ProductUpdateRequest request);
     void updateProductStatus(Long merchantId, ProductStatusRequest request);

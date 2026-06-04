@@ -2,7 +2,7 @@ package com.xytgy.teamallbackend.module.support.controller;
 
 import com.xytgy.teamallbackend.common.Result;
 import com.xytgy.teamallbackend.common.ResultCode;
-import com.xytgy.teamallbackend.common.UserContext;
+import com.xytgy.teamallbackend.security.SecurityUtils;
 import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.module.support.dto.SupportCreateRequest;
 import com.xytgy.teamallbackend.module.support.service.SupportService;
@@ -50,7 +50,7 @@ public class SupportController {
     }
 
     private Long currentUserId() {
-        Long userId = UserContext.getCurrentUserId();
+        Long userId = SecurityUtils.getCurrentUserId();
         if (userId == null) {
             throw new ServiceException(ResultCode.UNAUTHORIZED, "未登录");
         }

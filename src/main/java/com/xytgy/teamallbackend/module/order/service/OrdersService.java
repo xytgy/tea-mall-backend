@@ -11,6 +11,8 @@ import com.xytgy.teamallbackend.module.order.vo.MerchantOrderVO;
 import com.xytgy.teamallbackend.module.order.vo.OrderStatsVO;
 import com.xytgy.teamallbackend.module.order.vo.OrderVO;
 
+import com.xytgy.teamallbackend.common.PageResult;
+
 import java.util.List;
 
 /**
@@ -20,19 +22,23 @@ import java.util.List;
 */
 public interface OrdersService extends IService<Orders> {
     CreateOrderVO createOrder(Long userId, OrderCreateRequest request);
-    List<OrderVO> listOrders(Long userId, Integer status);
+    PageResult<OrderVO> listOrders(Long userId, Integer status, int page, int pageSize);
     OrderVO getOrderDetail(Long userId, Long orderId);
     void confirmOrder(Long userId, Long orderId);
     void cancelOrder(Long userId, Long orderId);
     void payOrder(Long userId, OrderPayRequest request);
     void applyRefund(Long userId, Long orderId);
     void submitReview(Long userId, OrderReviewRequest request);
-    
-    List<MerchantOrderVO> listMerchantOrders(Long merchantId);
+
+    PageResult<MerchantOrderVO> listMerchantOrders(Long merchantId, int page, int pageSize);
     void deliverOrder(Long merchantId, Long orderId);
     OrderStatsVO getOrderStats(Long userId);
     List<LogisticsVO> getOrderLogistics(Long userId, Long orderId);
-    
+
     void approveRefund(Long merchantId, Long orderId);
     void refuseRefund(Long merchantId, Long orderId, String reason);
+
+    // S6809: 供自注入代理调用的事务方法，确保事务生效
+    void doCancelOrderInTransaction(Orders order);
+    void doApproveRefundInTransaction(Orders order);
 }

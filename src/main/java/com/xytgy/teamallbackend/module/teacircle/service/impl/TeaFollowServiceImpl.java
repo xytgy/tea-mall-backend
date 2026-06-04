@@ -16,10 +16,8 @@ import com.xytgy.teamallbackend.module.teacircle.entity.TeaPost;
 import com.xytgy.teamallbackend.module.teacircle.repository.TeaPostMapper;
 import com.xytgy.teamallbackend.module.teacircle.repository.TeaLikeMapper;
 import com.xytgy.teamallbackend.module.teacircle.entity.TeaLike;
-import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.xytgy.teamallbackend.module.user.entity.User;
 import com.xytgy.teamallbackend.module.user.service.UserService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -53,7 +51,7 @@ public class TeaFollowServiceImpl extends ServiceImpl<TeaFollowMapper, TeaFollow
             throw new ServiceException(ResultCode.BAD_REQUEST, "不能关注自己");
         }
         User targetUser = userService.getById(followingId);
-        if (targetUser == null || targetUser.getIsDeleted() == 1) {
+        if (targetUser == null) {
             throw new ServiceException(ResultCode.NOT_FOUND, "用户不存在");
         }
 
@@ -82,7 +80,7 @@ public class TeaFollowServiceImpl extends ServiceImpl<TeaFollowMapper, TeaFollow
     @Override
     public UserProfileVO getUserProfile(Long currentUserId, Long targetUserId) {
         User targetUser = userService.getById(targetUserId);
-        if (targetUser == null || targetUser.getIsDeleted() == 1) {
+        if (targetUser == null) {
             throw new ServiceException(ResultCode.NOT_FOUND, "用户不存在");
         }
 
@@ -98,12 +96,11 @@ public class TeaFollowServiceImpl extends ServiceImpl<TeaFollowMapper, TeaFollow
         // 1. 找出该用户所有的动态 ID
         List<TeaPost> posts = teaPostMapper.selectList(new LambdaQueryWrapper<TeaPost>()
                 .eq(TeaPost::getUserId, targetUserId)
-                .eq(TeaPost::getIsDeleted, 0)
                 .select(TeaPost::getId));
         
         long likeReceivedCount = 0;
         if (posts != null && !posts.isEmpty()) {
-            List<Long> postIds = posts.stream().map(TeaPost::getId).collect(Collectors.toList());
+            List<Long> postIds = posts.stream().map(TeaPost::getId).toList();
             likeReceivedCount = teaLikeMapper.selectCount(new LambdaQueryWrapper<TeaLike>()
                     .in(TeaLike::getPostId, postIds));
         }
@@ -129,7 +126,7 @@ public class TeaFollowServiceImpl extends ServiceImpl<TeaFollowMapper, TeaFollow
 
         List<SimpleUserVO> records = p.getRecords().stream()
                 .map(f -> toSimpleUserVO(f.getFollowingId(), currentUserId))
-                .collect(Collectors.toList());
+                .toList();
         return new PageResult<>(records, p.getTotal(), p.getCurrent(), p.getSize());
     }
 
@@ -142,7 +139,7 @@ public class TeaFollowServiceImpl extends ServiceImpl<TeaFollowMapper, TeaFollow
 
         List<SimpleUserVO> records = p.getRecords().stream()
                 .map(f -> toSimpleUserVO(f.getFollowerId(), currentUserId))
-                .collect(Collectors.toList());
+                .toList();
         return new PageResult<>(records, p.getTotal(), p.getCurrent(), p.getSize());
     }
 

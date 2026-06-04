@@ -6,7 +6,6 @@ import com.xytgy.teamallbackend.module.teacircle.entity.TeaCampaign;
 import com.xytgy.teamallbackend.module.teacircle.repository.TeaCampaignMapper;
 import com.xytgy.teamallbackend.module.teacircle.service.TeaCampaignService;
 import com.xytgy.teamallbackend.module.teacircle.vo.TeaCampaignVO;
-import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 
 @Service

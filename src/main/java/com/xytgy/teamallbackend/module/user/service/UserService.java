@@ -19,7 +19,7 @@ import java.util.List;
 * @createDate 2026-04-15 07:59:22
 */
 public interface UserService extends IService<User> {
-    LoginResponse login(LoginRequest request);
+    LoginResponse login(LoginRequest request, String clientIp);
     LoginResponse refreshToken(String refreshToken);
     void register(RegisterRequest request);
     Long addUserByAdmin(AdminUserAddRequest request);

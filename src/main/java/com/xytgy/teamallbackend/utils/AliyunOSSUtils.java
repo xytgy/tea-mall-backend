@@ -4,7 +4,7 @@ package com.xytgy.teamallbackend.utils;
 import com.aliyun.oss.OSS;
 import com.aliyun.oss.OSSClientBuilder;
 import com.xytgy.teamallbackend.common.ResultCode;
-import com.xytgy.teamallbackend.common.UserContext;
+import com.xytgy.teamallbackend.security.SecurityUtils;
 import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.properties.AliyunOSSProperties;
 import lombok.RequiredArgsConstructor;
@@ -14,6 +14,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.UUID;
@@ -47,7 +48,7 @@ public class AliyunOSSUtils {
     }
 
     public String uploadWithKey(MultipartFile file, String objectKey) {
-        if (UserContext.getCurrentUserId() == null) {
+        if (SecurityUtils.getCurrentUserId() == null) {
             throw new ServiceException(ResultCode.UNAUTHORIZED, "未登录");
         }
 
@@ -101,6 +102,50 @@ public class AliyunOSSUtils {
         log.info("文件上传成功，访问路径为: {}", stringBuilder.toString());
 
         return stringBuilder.toString();
+    }
+
+    public String uploadAvatar(InputStream inputStream, String originalFilename) {
+        if (SecurityUtils.getCurrentUserId() == null) {
+            throw new ServiceException(ResultCode.UNAUTHORIZED, "未登录");
+        }
+        if (inputStream == null || !StringUtils.hasText(originalFilename)) {
+            throw new ServiceException(ResultCode.BAD_REQUEST, "上传参数不完整");
+        }
+        if (!StringUtils.hasText(aliyunOSSProperties.getEndpoint())
+                || !StringUtils.hasText(aliyunOSSProperties.getAccessKeyId())
+                || !StringUtils.hasText(aliyunOSSProperties.getAccessKeySecret())
+                || !StringUtils.hasText(aliyunOSSProperties.getBucketName())) {
+            throw new ServiceException(ResultCode.ERROR, "OSS 配置不完整，请检查 application-dev.yaml");
+        }
+        String extension = originalFilename.substring(originalFilename.lastIndexOf("."));
+        String fileName = UUID.randomUUID() + extension;
+        String objectKey = "avatars/" + fileName;
+
+        String endpoint = aliyunOSSProperties.getEndpoint().trim();
+        if (!endpoint.startsWith("http://") && !endpoint.startsWith("https://")) {
+            endpoint = "https://" + endpoint;
+        }
+        OSS ossClient = new OSSClientBuilder().build(
+                endpoint,
+                aliyunOSSProperties.getAccessKeyId(),
+                aliyunOSSProperties.getAccessKeySecret()
+        );
+        try {
+            ossClient.putObject(aliyunOSSProperties.getBucketName(), objectKey, inputStream);
+            StringBuilder sb = new StringBuilder("https://");
+            sb.append(aliyunOSSProperties.getBucketName())
+              .append(".")
+              .append(aliyunOSSProperties.getEndpoint())
+              .append("/")
+              .append(objectKey);
+            log.info("头像上传成功，访问路径为: {}", sb);
+            return sb.toString();
+        } catch (Exception e) {
+            log.error("头像上传到阿里云 OSS 失败: {}", e.getMessage());
+            throw new ServiceException(ResultCode.ERROR, "头像上传失败");
+        } finally {
+            ossClient.shutdown();
+        }
     }
 
 }

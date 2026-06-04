@@ -1,8 +1,11 @@
 package com.xytgy.teamallbackend.common.mapstruct;
 
+import com.xytgy.teamallbackend.module.user.dto.AddressAddRequest;
+import com.xytgy.teamallbackend.module.user.dto.AddressUpdateRequest;
 import com.xytgy.teamallbackend.module.user.dto.AdminUserAddRequest;
 import com.xytgy.teamallbackend.module.user.dto.LoginRequest;
 import com.xytgy.teamallbackend.module.user.dto.RegisterRequest;
+import com.xytgy.teamallbackend.module.user.entity.Address;
 import com.xytgy.teamallbackend.module.user.entity.User;
 import com.xytgy.teamallbackend.module.user.vo.LoginResponse;
 import com.xytgy.teamallbackend.module.user.vo.UserVO;
@@ -24,6 +27,7 @@ import com.xytgy.teamallbackend.module.order.vo.OrderItemVO;
 import com.xytgy.teamallbackend.module.order.vo.OrderVO;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
+import org.mapstruct.MappingTarget;
 import org.mapstruct.ReportingPolicy;
 
 import java.util.List;
@@ -44,6 +48,10 @@ public interface CopyMapper {
     UserVO toUserVO(User user);
     
     LoginResponse.UserInfo toUserInfo(User user);
+
+    Address toAddress(AddressAddRequest request);
+
+    void updateAddress(@MappingTarget Address address, AddressUpdateRequest request);
 
     /**
      * Product 模块

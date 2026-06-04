@@ -2,7 +2,7 @@ package com.xytgy.teamallbackend.module.teacircle.controller;
 
 import com.xytgy.teamallbackend.common.PageResult;
 import com.xytgy.teamallbackend.common.Result;
-import com.xytgy.teamallbackend.common.UserContext;
+import com.xytgy.teamallbackend.security.SecurityUtils;
 import com.xytgy.teamallbackend.module.teacircle.service.TeaFollowService;
 import com.xytgy.teamallbackend.module.teacircle.vo.SimpleUserVO;
 import com.xytgy.teamallbackend.module.teacircle.vo.UserProfileVO;
@@ -24,7 +24,7 @@ public class TeaCircleFollowController {
     @PostMapping("/{userId}/follow")
     @Operation(summary = "关注/取消关注")
     public Result<Map<String, Boolean>> toggleFollow(@PathVariable Long userId) {
-        Long currentUserId = UserContext.getCurrentUserId();
+        Long currentUserId = SecurityUtils.getCurrentUserId();
         return Result.success(teaFollowService.toggleFollow(currentUserId, userId));
     }
 
@@ -32,7 +32,7 @@ public class TeaCircleFollowController {
     @Operation(summary = "获取关注列表")
     public Result<PageResult<SimpleUserVO>> getFollowing(@RequestParam(defaultValue = "1") int page,
                                                          @RequestParam(defaultValue = "10") int pageSize) {
-        Long currentUserId = UserContext.getCurrentUserId();
+        Long currentUserId = SecurityUtils.getCurrentUserId();
         return Result.success(teaFollowService.getFollowingList(currentUserId, page, pageSize));
     }
 
@@ -40,7 +40,7 @@ public class TeaCircleFollowController {
     @Operation(summary = "获取粉丝列表")
     public Result<PageResult<SimpleUserVO>> getFollowers(@RequestParam(defaultValue = "1") int page,
                                                          @RequestParam(defaultValue = "10") int pageSize) {
-        Long currentUserId = UserContext.getCurrentUserId();
+        Long currentUserId = SecurityUtils.getCurrentUserId();
         return Result.success(teaFollowService.getFollowersList(currentUserId, page, pageSize));
     }
     
@@ -49,7 +49,7 @@ public class TeaCircleFollowController {
     public Result<UserProfileVO> getUserProfile(@PathVariable Long userId) {
         Long currentUserId = null;
         try {
-            currentUserId = UserContext.getCurrentUserId();
+            currentUserId = SecurityUtils.getCurrentUserId();
         } catch (Exception e) {
             // 未登录时允许查看，但 isFollowing 会返回 false
         }

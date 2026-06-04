@@ -63,7 +63,7 @@ public class SupportServiceImpl extends ServiceImpl<SupportTicketMapper, Support
                 .reply(t.getReplyContent())
                 .replyTime(t.getReplyTime() != null ? t.getReplyTime().format(TIME_FORMATTER) : null)
                 .build()
-        ).collect(Collectors.toList());
+        ).toList();
 
         Map<String, Object> result = new HashMap<>();
         result.put("total", ticketPage.getTotal());

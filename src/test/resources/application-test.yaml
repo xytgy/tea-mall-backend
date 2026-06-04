@@ -1,0 +1,24 @@
+# 测试环境配置
+spring:
+  flyway:
+    enabled: false
+  data:
+    redis:
+      host: localhost
+
+jwt:
+  # 测试专用密钥，仅用于单元测试
+  secret: test-secret-key-for-unit-tests-only-32bytes!
+  access-token-expiration-ms: 1800000
+  refresh-token-expiration-ms: 604800000
+
+knife4j:
+  enable: false
+
+app:
+  aliyun:
+    oss:
+      endpoint: test-endpoint
+      accessKeyId: test-key
+      accessKeySecret: test-secret
+      bucketName: test-bucket

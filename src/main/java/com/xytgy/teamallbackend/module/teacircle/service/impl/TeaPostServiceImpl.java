@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.xytgy.teamallbackend.common.PageResult;
 import com.xytgy.teamallbackend.common.ResultCode;
+import com.xytgy.teamallbackend.config.datasource.ReadOnly;
 import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.module.teacircle.dto.TeaPostAddRequest;
 import com.xytgy.teamallbackend.module.teacircle.entity.TeaFollow;
@@ -23,6 +24,8 @@ import com.xytgy.teamallbackend.module.teacircle.service.TeaTopicService;
 import com.xytgy.teamallbackend.module.teacircle.vo.TeaPostVO;
 import com.xytgy.teamallbackend.module.user.entity.User;
 import com.xytgy.teamallbackend.module.user.service.UserService;
+import com.xytgy.teamallbackend.config.mq.MqConstants;
+import com.xytgy.teamallbackend.config.mq.MqProducer;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.BeanUtils;
@@ -46,16 +49,19 @@ public class TeaPostServiceImpl extends ServiceImpl<TeaPostMapper, TeaPost> impl
     private final TeaTopicService teaTopicService;
     private final TeaPostTopicMapper teaPostTopicMapper;
     private final ObjectMapper objectMapper;
+    private final MqProducer mqProducer;
 
     public TeaPostServiceImpl(
             UserService userService,
             TeaLikeMapper teaLikeMapper,
             TeaFollowService teaFollowService,
+            // TeaPostServiceImpl → TeaCommentService → TeaPostServiceImpl 循环依赖，@Lazy 延迟解析打破循环
             @Lazy TeaCommentService teaCommentService,
             TeaNotificationService teaNotificationService,
             TeaTopicService teaTopicService,
             TeaPostTopicMapper teaPostTopicMapper,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            MqProducer mqProducer
     ) {
         this.userService = userService;
         this.teaLikeMapper = teaLikeMapper;
@@ -65,6 +71,7 @@ public class TeaPostServiceImpl extends ServiceImpl<TeaPostMapper, TeaPost> impl
         this.teaTopicService = teaTopicService;
         this.teaPostTopicMapper = teaPostTopicMapper;
         this.objectMapper = objectMapper;
+        this.mqProducer = mqProducer;
     }
 
 
@@ -72,6 +79,7 @@ public class TeaPostServiceImpl extends ServiceImpl<TeaPostMapper, TeaPost> impl
     private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public TeaPostVO addPost(Long userId, TeaPostAddRequest request) {
         if (request == null) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "参数错误");
@@ -98,7 +106,6 @@ public class TeaPostServiceImpl extends ServiceImpl<TeaPostMapper, TeaPost> impl
         }
         post.setLikeCount(0);
         post.setCommentCount(0);
-        post.setIsDeleted(0);
         this.save(post);
         
         if (request.getTopics() == null || request.getTopics().isEmpty()) {
@@ -132,20 +139,22 @@ public class TeaPostServiceImpl extends ServiceImpl<TeaPostMapper, TeaPost> impl
         return toVO(post, userId);
     }
 
+    @ReadOnly
     @Override
     public PageResult<TeaPostVO> getExplorePosts(Long userId, int page, int pageSize) {
         Page<TeaPost> p = new Page<>(page, pageSize);
         LambdaQueryWrapper<TeaPost> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(TeaPost::getIsDeleted, 0).orderByDesc(TeaPost::getCreateTime);
+        wrapper.orderByDesc(TeaPost::getCreateTime);
         this.page(p, wrapper);
         return buildPageResult(p, userId);
     }
 
+    @ReadOnly
     @Override
     public PageResult<TeaPostVO> getFollowingPosts(Long currentUserId, int page, int pageSize) {
         List<Long> followingIds = teaFollowService.lambdaQuery()
                 .eq(TeaFollow::getFollowerId, currentUserId)
-                .list().stream().map(TeaFollow::getFollowingId).collect(Collectors.toList());
+                .list().stream().map(TeaFollow::getFollowingId).toList();
 
         if (followingIds.isEmpty()) {
             return new PageResult<>(Collections.emptyList(), 0, page, pageSize);
@@ -153,24 +162,24 @@ public class TeaPostServiceImpl extends ServiceImpl<TeaPostMapper, TeaPost> impl
 
         Page<TeaPost> p = new Page<>(page, pageSize);
         LambdaQueryWrapper<TeaPost> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(TeaPost::getIsDeleted, 0)
-                .in(TeaPost::getUserId, followingIds)
+        wrapper.in(TeaPost::getUserId, followingIds)
                 .orderByDesc(TeaPost::getCreateTime);
         this.page(p, wrapper);
         return buildPageResult(p, currentUserId);
     }
 
+    @ReadOnly
     @Override
     public PageResult<TeaPostVO> getUserPosts(Long currentUserId, Long targetUserId, int page, int pageSize) {
         Page<TeaPost> p = new Page<>(page, pageSize);
         LambdaQueryWrapper<TeaPost> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(TeaPost::getIsDeleted, 0)
-                .eq(TeaPost::getUserId, targetUserId)
+        wrapper.eq(TeaPost::getUserId, targetUserId)
                 .orderByDesc(TeaPost::getCreateTime);
         this.page(p, wrapper);
         return buildPageResult(p, currentUserId);
     }
     
+    @ReadOnly
     @Override
     public PageResult<TeaPostVO> getTopicPosts(Long currentUserId, String topicName, int page, int pageSize) {
         TeaTopic topic = teaTopicService.getOne(new LambdaQueryWrapper<TeaTopic>().eq(TeaTopic::getName, topicName));
@@ -186,15 +195,14 @@ public class TeaPostServiceImpl extends ServiceImpl<TeaPostMapper, TeaPost> impl
         }
         
         List<TeaPost> posts = this.list(new LambdaQueryWrapper<TeaPost>()
-                .in(TeaPost::getId, postIds)
-                .eq(TeaPost::getIsDeleted, 0));
+                .in(TeaPost::getId, postIds));
         
         Map<Long, TeaPost> postMap = posts.stream().collect(Collectors.toMap(TeaPost::getId, p -> p, (a, b) -> a));
         List<TeaPostVO> list = postIds.stream()
                 .map(postMap::get)
                 .filter(Objects::nonNull)
                 .map(p -> toVO(p, currentUserId))
-                .collect(Collectors.toList());
+                .toList();
         
         return new PageResult<>(list, total, page, pageSize);
     }
@@ -202,7 +210,7 @@ public class TeaPostServiceImpl extends ServiceImpl<TeaPostMapper, TeaPost> impl
     @Override
     public TeaPostVO getPostDetail(Long userId, Long postId) {
         TeaPost post = this.getById(postId);
-        if (post == null || post.getIsDeleted() == 1) {
+        if (post == null) {
             throw new ServiceException(ResultCode.NOT_FOUND, "动态不存在");
         }
         TeaPostVO vo = toVO(post, userId);
@@ -215,17 +223,17 @@ public class TeaPostServiceImpl extends ServiceImpl<TeaPostMapper, TeaPost> impl
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void deletePost(Long userId, Long postId) {
         TeaPost post = this.getById(postId);
-        if (post == null || post.getIsDeleted() == 1) {
+        if (post == null) {
             throw new ServiceException(ResultCode.NOT_FOUND, "动态不存在");
         }
         if (!post.getUserId().equals(userId)) {
             throw new ServiceException(ResultCode.FORBIDDEN, "无权删除此动态");
         }
-        post.setIsDeleted(1);
-        post.setDeleteTime(java.time.LocalDateTime.now());
-        this.updateById(post);
+        // 使用@TableLogic注解后，removeById会自动执行逻辑删除
+        this.removeById(postId);
 
         List<TeaPostTopic> rels = teaPostTopicMapper.selectList(new LambdaQueryWrapper<TeaPostTopic>()
                 .eq(TeaPostTopic::getPostId, postId));
@@ -244,7 +252,7 @@ public class TeaPostServiceImpl extends ServiceImpl<TeaPostMapper, TeaPost> impl
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> toggleLike(Long userId, Long postId) {
         TeaPost post = this.getById(postId);
-        if (post == null || post.getIsDeleted() == 1) {
+        if (post == null) {
             throw new ServiceException(ResultCode.NOT_FOUND, "动态不存在");
         }
 
@@ -253,46 +261,114 @@ public class TeaPostServiceImpl extends ServiceImpl<TeaPostMapper, TeaPost> impl
         TeaLike existingLike = teaLikeMapper.selectOne(wrapper);
 
         boolean isLiked;
-        int newCount = post.getLikeCount() == null ? 0 : post.getLikeCount();
-
         if (existingLike != null) {
             teaLikeMapper.deleteById(existingLike.getId());
-            newCount = Math.max(0, newCount - 1);
+            // SQL 原子操作，避免并发下计数丢失
+            this.lambdaUpdate()
+                    .eq(TeaPost::getId, postId)
+                    .setSql("like_count = GREATEST(like_count - 1, 0)")
+                    .update();
             isLiked = false;
         } else {
             TeaLike like = new TeaLike();
             like.setUserId(userId);
             like.setPostId(postId);
-            teaLikeMapper.insert(like);
-            newCount++;
+            try {
+                teaLikeMapper.insert(like);
+            } catch (Exception e) {
+                // 唯一索引冲突说明并发重复点赞，忽略即可
+                Map<String, Object> dup = new HashMap<>();
+                dup.put("isLiked", true);
+                dup.put("likeCount", this.getById(postId).getLikeCount());
+                return dup;
+            }
+            this.lambdaUpdate()
+                    .eq(TeaPost::getId, postId)
+                    .setSql("like_count = like_count + 1")
+                    .update();
             isLiked = true;
             if (!userId.equals(post.getUserId())) {
-                teaNotificationService.addNotification(post.getUserId(), "like", like.getId(), userId);
+                Map<String, Object> notifyMsg = Map.of(
+                        "targetUserId", post.getUserId(),
+                        "type", "like",
+                        "sourceId", like.getId(),
+                        "actorId", userId
+                );
+                mqProducer.send(MqConstants.TOPIC_TEA_NOTIFICATION, MqConstants.TAG_LIKE,
+                        String.valueOf(like.getId()), notifyMsg);
             }
         }
-        post.setLikeCount(newCount);
-        this.updateById(post);
 
+        TeaPost updated = this.getById(postId);
         Map<String, Object> result = new HashMap<>();
         result.put("isLiked", isLiked);
-        result.put("likeCount", newCount);
+        result.put("likeCount", updated.getLikeCount());
         return result;
     }
 
     private PageResult<TeaPostVO> buildPageResult(Page<TeaPost> p, Long currentUserId) {
-        List<TeaPostVO> records = p.getRecords().stream()
-                .map(post -> toVO(post, currentUserId))
-                .collect(Collectors.toList());
+        List<TeaPost> posts = p.getRecords();
+        if (posts.isEmpty()) {
+            return new PageResult<>(Collections.emptyList(), 0, p.getCurrent(), p.getSize());
+        }
+
+        // 批量收集所有需要查询的 ID
+        Set<Long> userIds = posts.stream().map(TeaPost::getUserId).collect(Collectors.toSet());
+        List<Long> postIds = posts.stream().map(TeaPost::getId).toList();
+
+        // 批量查询用户信息
+        Map<Long, User> userMap = userService.listByIds(userIds).stream()
+                .collect(Collectors.toMap(User::getId, u -> u, (a, b) -> a));
+
+        // 批量查询当前用户的点赞状态
+        Set<Long> likedPostIds = Collections.emptySet();
+        Set<Long> followingUserIds = Collections.emptySet();
+        if (currentUserId != null) {
+            likedPostIds = teaLikeMapper.selectList(new LambdaQueryWrapper<TeaLike>()
+                    .eq(TeaLike::getUserId, currentUserId)
+                    .in(TeaLike::getPostId, postIds))
+                    .stream().map(TeaLike::getPostId).collect(Collectors.toSet());
+
+            followingUserIds = teaFollowService.lambdaQuery()
+                    .eq(TeaFollow::getFollowerId, currentUserId)
+                    .in(TeaFollow::getFollowingId, userIds)
+                    .list().stream().map(TeaFollow::getFollowingId).collect(Collectors.toSet());
+        }
+
+        // 批量查询帖子-话题关联
+        List<TeaPostTopic> allRels = teaPostTopicMapper.selectList(new LambdaQueryWrapper<TeaPostTopic>()
+                .in(TeaPostTopic::getPostId, postIds));
+        Map<Long, List<TeaPostTopic>> relMap = allRels.stream()
+                .collect(Collectors.groupingBy(TeaPostTopic::getPostId));
+
+        // 批量查询话题详情
+        Set<Long> allTopicIds = allRels.stream().map(TeaPostTopic::getTopicId).collect(Collectors.toSet());
+        Map<Long, TeaTopic> topicMap = allTopicIds.isEmpty() ? Collections.emptyMap()
+                : teaTopicService.listByIds(allTopicIds).stream()
+                        .collect(Collectors.toMap(TeaTopic::getId, t -> t, (a, b) -> a));
+
+        // 组装 VO
+        Set<Long> finalLikedPostIds = likedPostIds;
+        Set<Long> finalFollowingUserIds = followingUserIds;
+        List<TeaPostVO> records = posts.stream()
+                .map(post -> toVO(post, currentUserId, userMap, finalLikedPostIds, finalFollowingUserIds, relMap, topicMap))
+                .toList();
+
         return new PageResult<>(records, p.getTotal(), p.getCurrent(), p.getSize());
     }
 
-    private TeaPostVO toVO(TeaPost post, Long currentUserId) {
+    private TeaPostVO toVO(TeaPost post, Long currentUserId,
+                           Map<Long, User> userMap,
+                           Set<Long> likedPostIds,
+                           Set<Long> followingUserIds,
+                           Map<Long, List<TeaPostTopic>> relMap,
+                           Map<Long, TeaTopic> topicMap) {
         TeaPostVO vo = new TeaPostVO();
         BeanUtils.copyProperties(post, vo);
         vo.setCreateTime(post.getCreateTime() != null ? post.getCreateTime().format(FORMATTER) : null);
         vo.setUpdateTime(post.getUpdateTime() != null ? post.getUpdateTime().format(FORMATTER) : null);
-        vo.setStatus(post.getIsDeleted() != null && post.getIsDeleted() == 0 ? 1 : 0);
-        
+        vo.setStatus(1);
+
         if (StringUtils.hasText(post.getImages())) {
             try {
                 vo.setImages(objectMapper.readValue(post.getImages(), new TypeReference<List<String>>() {}));
@@ -303,25 +379,22 @@ public class TeaPostServiceImpl extends ServiceImpl<TeaPostMapper, TeaPost> impl
             vo.setImages(Collections.emptyList());
         }
 
-        List<TeaPostTopic> rels = teaPostTopicMapper.selectList(new LambdaQueryWrapper<TeaPostTopic>()
-                .eq(TeaPostTopic::getPostId, post.getId()));
-        if (rels == null || rels.isEmpty()) {
+        // 从预加载的 relMap 中获取话题
+        List<TeaPostTopic> rels = relMap.getOrDefault(post.getId(), Collections.emptyList());
+        if (rels.isEmpty()) {
             vo.setTopics(Collections.emptyList());
         } else {
-            List<Long> topicIds = rels.stream().map(TeaPostTopic::getTopicId).distinct().collect(Collectors.toList());
-            Map<Long, TeaTopic> topicMap = teaTopicService.listByIds(topicIds).stream()
-                    .collect(Collectors.toMap(TeaTopic::getId, t -> t, (a, b) -> a));
             List<String> topics = rels.stream()
-                    .map(TeaPostTopic::getTopicId)
-                    .map(topicMap::get)
+                    .map(r -> topicMap.get(r.getTopicId()))
                     .filter(Objects::nonNull)
                     .map(t -> StringUtils.hasText(t.getTitle()) ? t.getTitle() : "#" + t.getName())
                     .distinct()
-                    .collect(Collectors.toList());
+                    .toList();
             vo.setTopics(topics);
         }
 
-        User u = userService.getById(post.getUserId());
+        // 从预加载的 userMap 中获取用户
+        User u = userMap.get(post.getUserId());
         if (u != null) {
             com.xytgy.teamallbackend.module.teacircle.vo.AuthorVO author = new com.xytgy.teamallbackend.module.teacircle.vo.AuthorVO();
             author.setId(u.getId());
@@ -330,16 +403,41 @@ public class TeaPostServiceImpl extends ServiceImpl<TeaPostMapper, TeaPost> impl
             vo.setAuthor(author);
         }
 
-        if (currentUserId != null) {
-            Long count = teaLikeMapper.selectCount(new LambdaQueryWrapper<TeaLike>()
-                    .eq(TeaLike::getUserId, currentUserId).eq(TeaLike::getPostId, post.getId()));
-            vo.setIsLiked(count > 0);
-            vo.setIsFollowing(teaFollowService.isFollowing(currentUserId, post.getUserId()));
-        } else {
-            vo.setIsLiked(false);
-            vo.setIsFollowing(false);
-        }
+        // 从预加载的 Set 中判断状态
+        vo.setIsLiked(currentUserId != null && likedPostIds.contains(post.getId()));
+        vo.setIsFollowing(currentUserId != null && followingUserIds.contains(post.getUserId()));
+
         return vo;
+    }
+
+    // 单条动态转换（用于 addPost、getPostDetail 等单条场景）
+    private TeaPostVO toVO(TeaPost post, Long currentUserId) {
+        Set<Long> userIds = Set.of(post.getUserId());
+        Map<Long, User> userMap = userService.listByIds(userIds).stream()
+                .collect(Collectors.toMap(User::getId, u -> u, (a, b) -> a));
+
+        Set<Long> likedPostIds = Collections.emptySet();
+        Set<Long> followingUserIds = Collections.emptySet();
+        if (currentUserId != null) {
+            likedPostIds = teaLikeMapper.selectList(new LambdaQueryWrapper<TeaLike>()
+                    .eq(TeaLike::getUserId, currentUserId)
+                    .eq(TeaLike::getPostId, post.getId()))
+                    .stream().map(TeaLike::getPostId).collect(Collectors.toSet());
+            followingUserIds = teaFollowService.lambdaQuery()
+                    .eq(TeaFollow::getFollowerId, currentUserId)
+                    .eq(TeaFollow::getFollowingId, post.getUserId())
+                    .list().stream().map(TeaFollow::getFollowingId).collect(Collectors.toSet());
+        }
+
+        List<TeaPostTopic> rels = teaPostTopicMapper.selectList(new LambdaQueryWrapper<TeaPostTopic>()
+                .eq(TeaPostTopic::getPostId, post.getId()));
+        Map<Long, List<TeaPostTopic>> relMap = Map.of(post.getId(), rels);
+        Set<Long> topicIds = rels.stream().map(TeaPostTopic::getTopicId).collect(Collectors.toSet());
+        Map<Long, TeaTopic> topicMap = topicIds.isEmpty() ? Collections.emptyMap()
+                : teaTopicService.listByIds(topicIds).stream()
+                        .collect(Collectors.toMap(TeaTopic::getId, t -> t, (a, b) -> a));
+
+        return toVO(post, currentUserId, userMap, likedPostIds, followingUserIds, relMap, topicMap);
     }
 
     private String normalizeTopicName(String raw) {

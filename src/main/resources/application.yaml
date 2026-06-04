@@ -1,50 +1,123 @@
 spring:
   profiles:
-    active: dev
-  config:
-    import: optional:application-dev.yaml
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    encoding: UTF-8
+    validate-on-migrate: true
+    baseline-on-migrate: true
+    connect-retries: 30
   servlet:
     multipart:
       max-file-size: 10MB
       max-request-size: 10MB
   application:
     name: tea-mall-backend
-
-  # 数据库配置（必须正确！）
+  lifecycle:
+    timeout-per-shutdown-phase: 30s  # P0#23: 优雅停机等待超时时间
   datasource:
-    driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3306/cloud_tea_db?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
-    username: root
-    password: 123456   
-
+    dynamic:
+      hikari:
+        # 连接池核心参数
+        maximum-pool-size: 30          # 最大连接数，根据业务并发量调整
+        minimum-idle: 10               # 最小空闲连接数，保持一定空闲连接应对突发流量
+        connection-timeout: 3000       # 获取连接超时时间（毫秒），超时快速失败
+        idle-timeout: 600000           # 空闲连接超时时间（毫秒），10分钟
+        max-lifetime: 1800000          # 连接最大生命周期（毫秒），30分钟
+        # 监控参数
+        pool-name: TeaMallHikariPool   # 连接池名称，便于监控和日志
+        register-mbeans: true          # 注册JMX MBean，便于监控
   data:
     redis:
-      host: localhost
-      port: 6379
-
-  # 热部署
-  devtools:
-    restart:
-      enabled: true
+      # 从环境变量 REDIS_HOST 读取，默认值为 redis (docker 内部服务名)
+      host: ${REDIS_HOST:redis}
+      # 从环境变量 REDIS_PORT 读取，默认值为 6379
+      port: ${REDIS_PORT:6379}
+      # 生产环境必须通过环境变量 REDIS_PASSWORD 设置强密码，默认为空仅用于本地开发
+      password: ${REDIS_PASSWORD:}
+      database: 0
+      timeout: 3000                    # Redis命令超时时间（毫秒）
+      connect-timeout: 5000            # Redis连接超时时间（毫秒）
+      lettuce:
+        pool:
+          max-active: 8
+          max-wait: 2000ms  # P1#25: 设置最大等待时间，避免连接池耗尽时无限等待
 
 mybatis-plus:
   mapper-locations: classpath*:/mapper/**/*.xml
-  type-aliases-package: com.xytgy.teamallbackend.module.user.entity,com.xytgy.teamallbackend.module.product.entity,com.xytgy.teamallbackend.module.cart.entity,com.xytgy.teamallbackend.module.order.entity,com.xytgy.teamallbackend.module.shop.entity,com.xytgy.teamallbackend.module.teacircle.entity,com.xytgy.teamallbackend.module.feedback.entity
+  type-aliases-package: com.xytgy.teamallbackend.module.*.entity
   configuration:
     map-underscore-to-camel-case: true
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl # 打印SQL日志
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
 
 
 server:
-  port: 8080
+  port: 8081
+  shutdown: graceful  # P0#23: 启用优雅停机，等待请求处理完毕后再关闭
+  tomcat:
+    threads:
+      max: 400
+      min-spare: 50
+    accept-count: 100
+    max-connections: 10000
+    connection-timeout: 3000
 
 jwt:
-  # 至少 32 字符，生产环境请使用更强随机密钥并通过环境变量注入
-  secret: tea-mall-backend-jwt-secret-key-2026
-  access-token-expiration-ms: 1800000 # 30 分钟
-  refresh-token-expiration-ms: 604800000 # 7 天
+  # 密钥必须通过环境变量注入，禁止使用默认值（防止令牌伪造）
+  secret: ${JWT_SECRET}
+  access-token-expiration-ms: 1800000
+  refresh-token-expiration-ms: 604800000
 
 knife4j:
-  enable: true
+  enable: ${KNIFE4J_ENABLE:false}
   setting:
     language: zh_cn
+
+# API 文档访问控制（生产环境应设置为 false）
+docs:
+  enabled: ${DOCS_ENABLED:true}
+
+cache:
+  local:
+    max-size: 512
+    expire-seconds: 60
+
+rocketmq:
+  name-server: ${ROCKETMQ_NAMESRV:localhost:9876}
+  producer:
+    group: tea-mall-producer-group
+    send-message-timeout: 3000
+    retry-times-when-send-failed: 2
+
+flash-sale:
+  captcha-pool-size: 1000
+  captcha-expire-seconds: 60
+  token-expire-seconds: 15
+  consumer:
+    batch-size: 50
+    poll-interval-ms: 100
+    thread-count: 4
+  rate-limit:
+    normal-per-second: 1
+    captcha-per-second: 10
+    blacklist-per-minute: 100
+    blacklist-duration-seconds: 600
+  reconcile:
+    enabled: true
+    interval-ms: 60000
+    cleanup-interval-ms: 3600000
+
+app:
+  aliyun:
+    oss:
+      endpoint: ${ALIYUN_OSS_ENDPOINT:}
+      accessKeyId: ${ALIYUN_OSS_ACCESS_KEY_ID:}
+      accessKeySecret: ${ALIYUN_OSS_ACCESS_KEY_SECRET:}
+      bucketName: ${ALIYUN_OSS_BUCKET_NAME:}
+
+cors:
+  # 生产环境请通过环境变量 CORS_ALLOWED_ORIGINS 指定具体域名，不要使用 *
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+
+

@@ -2,7 +2,7 @@ package com.xytgy.teamallbackend.module.chat.controller;
 
 import com.xytgy.teamallbackend.common.Result;
 import com.xytgy.teamallbackend.common.ResultCode;
-import com.xytgy.teamallbackend.common.UserContext;
+import com.xytgy.teamallbackend.security.SecurityUtils;
 import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.module.chat.dto.ChatReadRequest;
 import com.xytgy.teamallbackend.module.chat.dto.MerchantChatReadRequest;
@@ -91,7 +91,7 @@ public class ChatController {
     }
 
     private Long currentUserId() {
-        Long userId = UserContext.getCurrentUserId();
+        Long userId = SecurityUtils.getCurrentUserId();
         if (userId == null) {
             throw new ServiceException(ResultCode.UNAUTHORIZED, "未登录");
         }

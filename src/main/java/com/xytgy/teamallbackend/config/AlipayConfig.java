@@ -3,6 +3,7 @@ package com.xytgy.teamallbackend.config;
 import com.alipay.api.AlipayClient;
 import com.alipay.api.DefaultAlipayClient;
 import lombok.Data;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -14,8 +15,11 @@ import jakarta.validation.constraints.Size;
 @Data
 @Configuration
 @Validated
+@ConditionalOnProperty(prefix = "alipay", name = "enabled", havingValue = "true")
 @ConfigurationProperties(prefix = "alipay")
 public class AlipayConfig {
+
+    private boolean enabled = false;
 
     @NotBlank(message = "alipay.app-id 不能为空")
     private String appId;

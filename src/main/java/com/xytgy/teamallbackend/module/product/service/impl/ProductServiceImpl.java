@@ -1,9 +1,13 @@
 package com.xytgy.teamallbackend.module.product.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.xytgy.teamallbackend.common.PageResult;
 import com.xytgy.teamallbackend.common.ResultCode;
 import com.xytgy.teamallbackend.common.mapstruct.CopyMapper;
+import com.xytgy.teamallbackend.config.datasource.ReadOnly;
 import com.xytgy.teamallbackend.module.product.dto.MerchantGoodsAddRequest;
 import com.xytgy.teamallbackend.module.product.dto.ProductAddRequest;
 import com.xytgy.teamallbackend.module.product.dto.ProductAuditRequest;
@@ -17,6 +21,7 @@ import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.module.product.repository.ProductMapper;
 import com.xytgy.teamallbackend.module.product.service.ProductService;
 import com.xytgy.teamallbackend.module.user.service.UserService;
+import com.xytgy.teamallbackend.utils.RedisUtils;
 import com.xytgy.teamallbackend.module.product.vo.AuditVO;
 import com.xytgy.teamallbackend.module.product.vo.ProductVO;
 import com.xytgy.teamallbackend.module.product.vo.ProductReviewVO;
@@ -50,17 +55,26 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
     
     private final ProductReviewMapper productReviewMapper;
 
+    private final RedisUtils redisUtils;
+
+    @ReadOnly
     @Override
-    public List<ProductVO> listAvailableProducts() {
-        return lambdaQuery()
-                .eq(Product::getStatus, 1)
-                .eq(Product::getAuditStatus, 1)
-                .gt(Product::getStock, 0)
-                .orderByDesc(Product::getUpdateTime)
-                .list()
-                .stream()
-                .map(this::toVO)
-                .collect(Collectors.toList());
+    public PageResult<ProductVO> listAvailableProducts(int page, int pageSize) {
+        String cacheKey = "cache:product:list:" + page + ":" + pageSize;
+        return redisUtils.getOrLoad(cacheKey, new TypeReference<>() {}, 5, () -> {
+            Page<Product> pageResult = lambdaQuery()
+                    .eq(Product::getStatus, 1)
+                    .eq(Product::getAuditStatus, 1)
+                    .gt(Product::getStock, 0)
+                    .orderByDesc(Product::getUpdateTime)
+                    .page(new Page<>(page, pageSize));
+
+            List<ProductVO> voList = pageResult.getRecords().stream()
+                    .map(this::toVO)
+                    .toList();
+
+            return new PageResult<>(voList, pageResult.getTotal(), page, pageSize);
+        });
     }
 
     @Override
@@ -87,23 +101,26 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
         product.setMerchantId(merchantId);
         // 数据库无 sales 字段时依赖表默认值；有字段时建议 default 0
         save(product);
+        redisUtils.deleteByPattern("cache:product:list:*");
         return product.getId();
     }
 
+    @ReadOnly
     @Override
-    public List<ProductVO> listMerchantProducts(Long merchantId) {
-        return lambdaQuery()
+    public PageResult<ProductVO> listMerchantProducts(Long merchantId, int page, int pageSize) {
+        Page<Product> pageResult = lambdaQuery()
                 .eq(Product::getMerchantId, merchantId)
                 .orderByDesc(Product::getUpdateTime)
-                .list()
-                .stream()
-                .map(p -> {
-                    ProductVO vo = toVO(p);
-                    vo.setStatus(p.getStatus());
-                    vo.setSales(p.getSales() == null ? 0 : p.getSales());
-                    return vo;
-                })
-                .collect(Collectors.toList());
+                .page(new Page<>(page, pageSize));
+
+        List<ProductVO> voList = pageResult.getRecords().stream().map(p -> {
+            ProductVO vo = toVO(p);
+            vo.setStatus(p.getStatus());
+            vo.setSales(p.getSales() == null ? 0 : p.getSales());
+            return vo;
+        }).toList();
+
+        return new PageResult<>(voList, pageResult.getTotal(), page, pageSize);
     }
 
     @Override
@@ -119,6 +136,7 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
         product.setAuditStatus(0); // 待审核
         product.setSales(0);
         save(product);
+        redisUtils.deleteByPattern("cache:product:list:*");
     }
 
     @Override
@@ -153,6 +171,9 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
         }
         product.setAuditStatus(0); // 重新审核
         updateById(product);
+        redisUtils.delete("cache:product:detail:" + request.getId());
+        redisUtils.deleteByPattern("cache:product:list:*");
+        redisUtils.deleteByPattern("cache:product:reviews:" + request.getId());
     }
 
     @Override
@@ -166,8 +187,11 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
         }
         product.setStatus(request.getStatus());
         updateById(product);
+        redisUtils.delete("cache:product:detail:" + request.getId());
+        redisUtils.deleteByPattern("cache:product:list:*");
     }
 
+    @ReadOnly
     @Override
     public List<AuditVO> listPendingAuditProducts() {
         List<Product> list = lambdaQuery()
@@ -198,7 +222,7 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
                 vo.setMerchant(s.getShopName()); // 也可以改为显示店铺名
             }
             return vo;
-        }).collect(Collectors.toList());
+        }).toList();
     }
 
     @Override
@@ -212,37 +236,43 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
         }
         product.setAuditStatus(request.getStatus());
         updateById(product);
+        redisUtils.delete("cache:product:detail:" + request.getId());
+        redisUtils.deleteByPattern("cache:product:list:*");
     }
 
+    @ReadOnly
     @Override
     public List<ProductReviewVO> listProductReviews(Long productId) {
         if (productId == null) {
             return Collections.emptyList();
         }
-        
-        QueryWrapper<ProductReview> queryWrapper = new QueryWrapper<>();
-        queryWrapper.eq("product_id", productId).orderByDesc("create_time");
-        List<ProductReview> reviews = productReviewMapper.selectList(queryWrapper);
-        
-        if (reviews == null || reviews.isEmpty()) {
-            return Collections.emptyList();
-        }
 
-        Set<Long> userIds = reviews.stream().map(ProductReview::getUserId).collect(Collectors.toSet());
-        Map<Long, User> userMap = userService.listByIds(userIds).stream()
-                .collect(Collectors.toMap(User::getId, u -> u));
+        String cacheKey = "cache:product:reviews:" + productId;
+        return redisUtils.getOrLoad(cacheKey, new TypeReference<>() {}, 5, () -> {
+            QueryWrapper<ProductReview> queryWrapper = new QueryWrapper<>();
+            queryWrapper.eq("product_id", productId).orderByDesc("create_time");
+            List<ProductReview> reviews = productReviewMapper.selectList(queryWrapper);
 
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-
-        return reviews.stream().map(r -> {
-            User u = userMap.get(r.getUserId());
-            ProductReviewVO vo = copyMapper.toProductReviewVO(r, u);
-            if (u == null) {
-                vo.setUsername("匿名用户");
+            if (reviews == null || reviews.isEmpty()) {
+                return Collections.emptyList();
             }
-            vo.setCreateTime(r.getCreateTime() == null ? null : r.getCreateTime().format(formatter));
-            return vo;
-        }).collect(Collectors.toList());
+
+            Set<Long> userIds = reviews.stream().map(ProductReview::getUserId).collect(Collectors.toSet());
+            Map<Long, User> userMap = userService.listByIds(userIds).stream()
+                    .collect(Collectors.toMap(User::getId, u -> u));
+
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+            return reviews.stream().map(r -> {
+                User u = userMap.get(r.getUserId());
+                ProductReviewVO vo = copyMapper.toProductReviewVO(r, u);
+                if (u == null) {
+                    vo.setUsername("匿名用户");
+                }
+                vo.setCreateTime(r.getCreateTime() == null ? null : r.getCreateTime().format(formatter));
+                return vo;
+            }).toList();
+        });
     }
 
     private ProductVO toVO(Product product) {

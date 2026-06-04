@@ -87,7 +87,7 @@ public class CartServiceImpl extends ServiceImpl<CartMapper, Cart>
 
         return cartList.stream()
                 .map(cart -> toCartItemVO(cart, productMap.get(cart.getProductId())))
-                .collect(Collectors.toList());
+                .toList();
     }
 
     @Override

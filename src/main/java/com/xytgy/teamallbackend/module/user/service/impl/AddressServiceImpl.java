@@ -8,13 +8,18 @@ import com.xytgy.teamallbackend.module.user.dto.AddressUpdateRequest;
 import com.xytgy.teamallbackend.module.user.entity.Address;
 import com.xytgy.teamallbackend.module.user.repository.AddressMapper;
 import com.xytgy.teamallbackend.module.user.service.AddressService;
+import com.xytgy.teamallbackend.common.mapstruct.CopyMapper;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
 @Service
+@RequiredArgsConstructor
 public class AddressServiceImpl extends ServiceImpl<AddressMapper, Address> implements AddressService {
+
+    private final CopyMapper copyMapper;
 
     @Override
     public List<Address> listAddress(Long userId) {
@@ -35,12 +40,11 @@ public class AddressServiceImpl extends ServiceImpl<AddressMapper, Address> impl
             clearDefaultAddress(userId);
         }
 
-        Address address = new Address();
+        Address address = copyMapper.toAddress(request);
         address.setUserId(userId);
-        address.setReceiverName(request.getReceiverName());
-        address.setReceiverPhone(request.getReceiverPhone());
-        address.setReceiverAddress(request.getReceiverAddress());
-        address.setIsDefault(request.getIsDefault() != null ? request.getIsDefault() : false);
+        if (address.getIsDefault() == null) {
+            address.setIsDefault(false);
+        }
         
         this.save(address);
     }
@@ -59,10 +63,7 @@ public class AddressServiceImpl extends ServiceImpl<AddressMapper, Address> impl
             clearDefaultAddress(userId);
         }
 
-        if (request.getReceiverName() != null) address.setReceiverName(request.getReceiverName());
-        if (request.getReceiverPhone() != null) address.setReceiverPhone(request.getReceiverPhone());
-        if (request.getReceiverAddress() != null) address.setReceiverAddress(request.getReceiverAddress());
-        if (request.getIsDefault() != null) address.setIsDefault(request.getIsDefault());
+        copyMapper.updateAddress(address, request);
 
         this.updateById(address);
     }

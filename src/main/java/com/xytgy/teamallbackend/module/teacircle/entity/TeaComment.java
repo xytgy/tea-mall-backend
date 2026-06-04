@@ -2,6 +2,7 @@ package com.xytgy.teamallbackend.module.teacircle.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import java.time.LocalDateTime;
@@ -18,5 +19,10 @@ public class TeaComment {
     private Long parentId;
     private Long replyToUserId;
     private LocalDateTime createTime;
+
+    /**
+     * 是否删除 0否 1是
+     */
+    @TableLogic
     private Integer isDeleted;
 }

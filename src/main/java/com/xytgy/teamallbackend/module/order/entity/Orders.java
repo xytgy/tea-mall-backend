@@ -1,8 +1,8 @@
 package com.xytgy.teamallbackend.module.order.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
-import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -105,4 +105,15 @@ public class Orders {
      * 预计结算时间
      */
     private LocalDateTime settleTime;
+
+    /**
+     * 订单来源：0普通 1秒杀
+     */
+    private Integer source;
+
+    /**
+     * 逻辑删除 0否 1是
+     */
+    @TableLogic
+    private Integer isDeleted;
 }

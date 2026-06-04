@@ -2,10 +2,11 @@ package com.xytgy.teamallbackend.module.teacircle.controller;
 
 import com.xytgy.teamallbackend.common.Result;
 import com.xytgy.teamallbackend.common.ResultCode;
-import com.xytgy.teamallbackend.common.UserContext;
+import com.xytgy.teamallbackend.security.SecurityUtils;
 import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.module.teacircle.vo.TeaCircleImageUploadVO;
 import com.xytgy.teamallbackend.utils.AliyunOSSUtils;
+import com.xytgy.teamallbackend.utils.FileMagicUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -43,7 +44,7 @@ public class TeaCircleFileController {
     @PostMapping("/images")
     @Operation(summary = "上传茶友圈图片(多文件)")
     public Result<TeaCircleImageUploadVO> uploadImages(@RequestParam("files") MultipartFile[] files) {
-        Long userId = UserContext.getCurrentUserId();
+        Long userId = SecurityUtils.getCurrentUserId();
         if (userId == null) {
             throw new ServiceException(ResultCode.UNAUTHORIZED, "未登录");
         }
@@ -65,6 +66,16 @@ public class TeaCircleFileController {
             String contentType = file.getContentType();
             if (contentType == null || !ALLOWED_TYPES.contains(contentType.toLowerCase())) {
                 throw new ServiceException(ResultCode.BAD_REQUEST, "仅支持 jpg/jpeg/png/webp");
+            }
+            // 魔术字校验：检查文件头字节，防止伪造 Content-Type 上传恶意文件
+            try {
+                if (!FileMagicUtils.isImage(file.getInputStream())) {
+                    throw new ServiceException(ResultCode.BAD_REQUEST, "文件内容与声明的格式不符");
+                }
+            } catch (ServiceException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new ServiceException(ResultCode.BAD_REQUEST, "文件校验失败");
             }
             urls.add(aliyunOSSUtils.uploadTeaCircleImage(file));
         }

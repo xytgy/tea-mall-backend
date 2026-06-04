@@ -2,121 +2,134 @@
 
 ## 1. 项目概述
 
-**CloudTea (茶商城)** 是一个集茶叶商品交易、商家店铺管理、用户社交互动（茶友圈）以及后台运营管理于一体的综合性电商后端系统。
+**CloudTea (茶商城)** 是一个集茶叶商品交易、商家店铺管理、用户社交互动（茶友圈）、即时聊天以及秒杀活动于一体的综合性电商后端系统。
 
-本项目旨在为热爱茶文化的买家提供一个选茶、购茶、论茶的一站式平台，同时为茶叶商户提供便捷的开店与订单管理工具。它解决传统茶叶交易中信息不透明、用户缺乏交流场景的问题，通过引入“茶友圈”模块，打造一个具有垂直社交属性的现代电商生态。
+本项目旨在为热爱茶文化的买家提供一个选茶、购茶、论茶的一站式平台，同时为茶叶商户提供便捷的开店与订单管理工具。它解决传统茶叶交易中信息不透明、用户缺乏交流场景的问题，通过引入"茶友圈"模块，打造一个具有垂直社交属性的现代电商生态。
 
 ## 2. 核心功能
 
-本项目采用模块化设计，目前已实现以下核心业务功能：
+本项目采用模块化设计，共 12 个业务模块：
 
-*   **用户与认证模块 (User & Auth)**
-    *   支持用户的注册、登录（基于 JWT 鉴权）。
-    *   用户角色管理（区分买家 0、商家 1、管理员 2）。
-    *   个人资料管理（修改头像、昵称、密码）以及收货地址的多地址管理（增删改查、默认地址设置）。
-*   **商品与店铺模块 (Product & Shop)**
-    *   买家端：商品大厅列表展示、商品详情查看、商品评价列表展示。
-    *   商家端：商家入驻（开通店铺）、商品发布、商品编辑、上下架状态管理，以及获取店铺专属商品列表。
-*   **购物车与订单模块 (Cart & Order)**
-    *   购物车管理：商品加购、数量修改、移出购物车。
-    *   订单流转：支持订单创建、模拟支付、确认收货、取消订单、评价商品。
-    *   商家订单处理：商家获取店铺专属订单列表、对订单进行发货操作。
-    *   订单状态过滤与统计：支持按状态精确查询订单，并在个人中心提供高效的各状态订单数量角标统计。
-*   **茶友圈社交模块 (Tea Circle)**
-    *   图文动态：支持发布图文动态，并提供“广场（最新动态流）”和“朋友圈（关注者动态流）”。
-    *   互动盖楼：支持对动态进行点赞、取消点赞，以及支持两级嵌套结构的“盖楼式”评论与回复。
-    *   用户关注：支持关注、取消关注其他用户，获取粉丝和关注列表。
-    *   消息通知：系统自动生成点赞、评论、关注的未读消息通知，并支持红点统计和标记已读。
-    *   话题与活动：提供热门话题榜单及最新的营销活动 Banner 展示。
-*   **其他公共模块**
-    *   **收藏夹 (Favorite)**：商品收藏、取消收藏及状态检查。
-    *   **意见反馈 (Feedback)**：支持已登录用户或游客提交图文并茂的意见反馈。
-    *   **工单客服 (Support)**：支持提交售后/咨询工单。
+| 模块 | 说明 |
+|------|------|
+| **用户与认证 (User & Auth)** | 注册、登录（JWT）、角色管理（买家/商家/管理员）、个人资料、收货地址 |
+| **商品与店铺 (Product & Shop)** | 商品浏览、评价、商家入驻、商品发布编辑、上下架管理 |
+| **购物车 (Cart)** | 商品加购、数量修改、移出购物车 |
+| **订单 (Order)** | 订单创建、支付、确认收货、取消、评价、商家发货、状态统计 |
+| **秒杀 (Flash Sale)** | Redis Lua 原子扣库存、验证码防刷、MQ 异步下单、五层防护体系、对账任务 |
+| **茶友圈 (Tea Circle)** | 图文动态、盖楼评论、点赞、关注、消息通知、话题与活动 |
+| **即时聊天 (Chat)** | 基于 WebSocket 的买家-商家实时聊天、未读消息管理 |
+| **收藏夹 (Favorite)** | 商品收藏、取消收藏及状态检查 |
+| **意见反馈 (Feedback)** | 已登录用户或游客提交图文反馈 |
+| **客服工单 (Support)** | 提交售后/咨询工单 |
+| **文件上传 (Upload)** | 阿里云 OSS 文件上传（头像、图片等） |
 
 ## 3. 技术栈
 
-本项目基于 Java 17 和成熟的 Spring 生态构建，保证了系统的高效与稳定：
+| 类别 | 技术 | 说明 |
+|------|------|------|
+| 语言 | Java 17 | LTS 版本 |
+| 核心框架 | Spring Boot 3.3.4 | 依赖注入、自动配置、Web 容器 |
+| 持久层 | MyBatis-Plus 3.5.10 | 简化 CRUD、分页插件 |
+| 数据库 | MySQL 8+ | InnoDB 引擎 |
+| 缓存 | Redis + Caffeine | L1 本地缓存 + L2 分布式缓存、布隆过滤器防穿透 |
+| 消息队列 | RocketMQ | 秒杀异步下单、订单超时、支付通知、聊天消息 |
+| 安全 | Spring Security + JWT | 无状态鉴权、BCrypt 密码加密、登录限流 |
+| 对象映射 | MapStruct 1.5.5 | 编译期生成 Entity/VO/DTO 映射代码 |
+| API 文档 | Knife4j 4.5.0 | OpenAPI 3 在线接口调试 |
+| 云服务 | Aliyun OSS SDK | 头像、动态图片等静态资源上传 |
+| 数据库迁移 | Flyway | 版本化 SQL 迁移管理 |
+| 工具库 | Lombok | 减少样板代码 |
 
-*   **编程语言**: Java 17
-*   **核心框架**: Spring Boot 3.3.4 (提供依赖注入、自动配置、Web 容器等核心能力)
-*   **持久层框架**: MyBatis-Plus 3.5.10 (极大地简化了单表 CRUD 操作，内置分页插件及代码生成支持)
-*   **数据库**: MySQL 8+ (存储所有关系型业务数据，使用 InnoDB 引擎)
-*   **缓存与性能**: Redis (结合 Spring Data Redis 用于热点数据缓存或未来的高并发场景)
-*   **安全与鉴权**: 
-    *   JWT (JSON Web Token，`jjwt 0.11.5`)：实现无状态的分布式 API 访问鉴权。
-    *   Spring Security Crypto：用于用户密码的 BCrypt 安全加密。
-*   **对象映射**: MapStruct 1.5.5 (在编译期生成高性能的 Entity 与 VO/DTO 之间的属性拷贝代码，替代传统的反射拷贝)
-*   **API 文档**: Knife4j 4.5.0 (基于 OpenAPI 3，提供美观强大的在线接口调试与文档页面)
-*   **云服务 SDK**: Aliyun OSS SDK (接入阿里云对象存储，用于处理头像、动态图片等静态资源的上传)
-*   **工具库**: Lombok (减少 getter/setter 等样板代码，提升开发效率)
-
-**架构设计决策**：
-项目采用经典的单体 MVC 分层架构，按照业务领域划分子模块（`module`）。通过 `Controller` -> `Service` -> `Mapper` 的清晰调用链保证了代码的高内聚和低耦合。鉴权部分通过自定义的 `JwtInterceptor` 拦截器统一拦截并解析 Token，将用户信息存入 `UserContext`（ThreadLocal）中供全局安全调用。
+**架构设计**：
+项目采用单体 MVC 分层架构，按业务领域划分为 12 个子模块（`module`）。通过 `Controller` → `Service` → `Mapper` 的调用链保证代码高内聚低耦合。鉴权通过 `JwtAuthenticationFilter`（Spring Security 过滤器链）统一拦截并解析 Token。
 
 ## 4. 项目架构与目录结构
 
 ```text
 tea-mall-backend
-├── docs
-│   └── sql/                 # 存放数据库建表 DDL 及测试数据 DML (如 tea_circle.sql, feedback.sql 等)
 ├── src/main/java/com/xytgy/teamallbackend
-│   ├── common/              # 全局公共类 (Result 统一响应结构、PageResult 分页对象、ThreadLocal 上下文、异常枚举)
-│   ├── config/              # 配置类 (Web 跨域/拦截器配置、Knife4j 配置、Redis 配置等)
-│   ├── exception/           # 自定义异常类及全局异常处理器 (GlobalExceptionHandler)
-│   ├── properties/          # 自定义配置属性绑定类 (如 AliyunOSSProperties)
-│   ├── utils/               # 工具类 (JwtUtils, AliyunOSSUtils 等)
-│   └── module/              # 核心业务模块 (按领域驱动划分)
-│       ├── user/            # 用户认证、资料、收货地址
-│       ├── product/         # 商品浏览、评价、商家商品管理
-│       ├── shop/            # 店铺开通与信息管理
-│       ├── cart/            # 购物车
-│       ├── order/           # 订单创建、流转、状态统计
-│       ├── teacircle/       # 茶友圈动态、评论、点赞、关注、通知、话题
-│       ├── favorite/        # 商品收藏夹
-│       ├── feedback/        # 意见反馈收集
-│       └── support/         # 客服工单
+│   ├── common/              # 公共类 (Result、PageResult、ResultCode、UserRole、CopyMapper)
+│   ├── config/              # 配置类
+│   │   ├── datasource/      #   多数据源动态切换（读写分离）
+│   │   ├── mq/              #   RocketMQ 生产者/消费者（秒杀订单、聊天、通知等）
+│   │   ├── security/        #   Spring Security 配置、JWT 过滤器
+│   │   └── websocket/       #   WebSocket 聊天配置
+│   ├── exception/           # 全局异常处理器 (GlobalExceptionHandler、ServiceException)
+│   ├── security/            # 安全工具 (SecurityUtils、SecurityConstants、JwtAuthenticationToken)
+│   ├── utils/               # 工具类 (RedisUtils、JwtUtils、BloomFilterManager、DistributedLock、RateLimitService 等)
+│   └── module/              # 12 个业务模块（每个模块含 controller/dto/entity/repository/service/vo）
+│       ├── user/            #   用户认证、资料、收货地址
+│       ├── product/         #   商品浏览、评价、商家商品管理
+│       ├── shop/            #   店铺开通与信息管理
+│       ├── cart/            #   购物车
+│       ├── order/           #   订单创建、流转、支付、状态统计
+│       ├── flashsale/       #   秒杀活动、验证码、限流、对账
+│       ├── teacircle/       #   茶友圈动态、评论、点赞、关注、通知、话题
+│       ├── chat/            #   即时聊天（WebSocket）
+│       ├── favorite/        #   商品收藏夹
+│       ├── feedback/        #   意见反馈
+│       ├── support/         #   客服工单
+│       └── upload/          #   文件上传
+├── src/main/resources/
+│   ├── db/migration/        # Flyway 数据库迁移脚本（V1~V8）
+│   ├── lua/                 # Redis Lua 脚本（秒杀扣减/回补、滑动窗口限流）
+│   ├── mapper/              # MyBatis XML 映射文件
+│   └── application.yaml     # 主配置文件
 └── pom.xml                  # Maven 依赖管理
 ```
 
 ## 5. 运行与使用方式
 
 ### 前置条件
-1. JDK 17 或更高版本。
-2. Maven 3.6+。
-3. MySQL 8.0 数据库。
-4. Redis 服务 (默认 127.0.0.1:6379)。
+1. JDK 17 或更高版本
+2. Maven 3.6+
+3. MySQL 8.0 数据库
+4. Redis 服务
+5. RocketMQ（秒杀、聊天等功能需要）
 
 ### 启动步骤
 
 1.  **数据库初始化**：
-    *   在 MySQL 中创建数据库 `cloud_tea_db`：`CREATE DATABASE cloud_tea_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;`
-2.  **修改配置文件**：
-    *   打开 `src/main/resources/application.yaml` (或对应环境的 `application-dev.yaml`)。
-    *   确认并修改 `spring.datasource` 下的数据库账号与密码。
-    *   确认 Redis 的连接信息。
-    *   如需真实上传图片，需在配置中补全 Aliyun OSS 的 `endpoint`、`accessKeyId` 等参数。
-3.  **安装依赖并启动**：
-    *   在项目根目录下打开终端，执行以下命令安装依赖并编译：
-        ```bash
-        ./mvnw clean compile
-        ```
-    *   启动 Spring Boot 项目：
-        ```bash
-        ./mvnw spring-boot:run
-        ```
-    *   （或直接在 IDEA/Eclipse 中运行 `TeaMallBackendApplication.java` 的 main 方法）。
+    *   在 MySQL 中创建数据库：`CREATE DATABASE cloud_tea_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;`
+    *   项目启动时 Flyway 自动执行 `src/main/resources/db/migration/` 下的迁移脚本。
 
-### API 文档访问
-项目成功启动后（默认端口 8080），在浏览器中访问以下地址即可查看和调试所有的 RESTful API：
-👉 `http://localhost:8080/doc.html` (Knife4j 增强接口文档)
+2.  **配置环境变量**：
+
+    | 变量 | 说明 | 默认值 |
+    |------|------|--------|
+    | `DB_HOST` | MySQL 主机 | localhost |
+    | `DB_PORT` | MySQL 端口 | 3306 |
+    | `DB_USERNAME` | MySQL 用户名 | - |
+    | `DB_PASSWORD` | MySQL 密码 | - |
+    | `REDIS_HOST` | Redis 主机 | redis |
+    | `REDIS_PORT` | Redis 端口 | 6379 |
+    | `REDIS_PASSWORD` | Redis 密码 | - |
+    | `JWT_SECRET` | JWT 密钥（≥32字符） | - |
+    | `ROCKETMQ_NAMESRV` | RocketMQ NameServer | localhost:9876 |
+    | `ALIYUN_OSS_*` | 阿里云 OSS 配置 | - |
+
+3.  **启动项目**：
+    ```bash
+    ./mvnw spring-boot:run
+    ```
+    或在 IDEA 中运行 `TeaMallBackendApplication.java`。
+
+4.  **API 文档**：
+    项目启动后访问 `http://localhost:8081/doc.html`（需设置 `KNIFE4J_ENABLE=true`）。
+
+### 运行测试
+```bash
+./mvnw test
+```
 
 ## 6. 项目目的与价值
 
 **建设动机**：
-随着新中式茶饮的崛起和茶文化的年轻化，传统的单一茶叶销售平台已经无法满足用户对“交流与分享”的需求。CloudTea 的诞生是为了打破“买完即走”的传统电商模式。
+随着新中式茶饮的崛起和茶文化的年轻化，传统的单一茶叶销售平台已经无法满足用户对"交流与分享"的需求。CloudTea 的诞生是为了打破"买完即走"的传统电商模式。
 
 **应用场景与目标用户**：
-*   **茶叶消费者**：可以轻松选购来自不同商家的茶叶，并在“茶友圈”分享品茶心得、晒茶具，结交同好。
+*   **茶叶消费者**：可以轻松选购来自不同商家的茶叶，并在"茶友圈"分享品茶心得、晒茶具，结交同好。
 *   **茶农与茶商**：提供了一个极低门槛的入驻平台。商家不仅能管理商品和处理订单，还能通过茶友圈发布新品预热、普及茶知识，直接触达精准客户群体，实现私域流量沉淀。
 
 **实际价值**：
