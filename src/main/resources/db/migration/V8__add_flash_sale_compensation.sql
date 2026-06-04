@@ -1,4 +1,4 @@
-CREATE TABLE flash_sale_compensation (
+CREATE TABLE IF NOT EXISTS flash_sale_compensation (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     failed_order_id BIGINT NOT NULL COMMENT '关联的失败订单ID',
     user_id BIGINT NOT NULL,

@@ -25,7 +25,6 @@ import java.util.Map;
 public class DynamicDataSourceConfig {
 
     @Bean
-    @Primary
     @ConfigurationProperties(prefix = "spring.datasource.hikari")
     public HikariDataSource primaryDataSource(
             @Value("${spring.datasource.url}") String url,

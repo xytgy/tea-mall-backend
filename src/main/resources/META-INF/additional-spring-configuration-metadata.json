@@ -1,0 +1,74 @@
+{
+  "properties": [
+    {
+      "name": "mybatis-plus",
+      "type": "java.util.Map<java.lang.String,java.lang.Object>",
+      "description": "MyBatis-Plus 配置"
+    },
+    {
+      "name": "mybatis-plus.mapper-locations",
+      "type": "java.lang.String",
+      "description": "Mapper XML 文件路径"
+    },
+    {
+      "name": "mybatis-plus.type-aliases-package",
+      "type": "java.lang.String",
+      "description": "实体类别名包路径"
+    },
+    {
+      "name": "mybatis-plus.configuration.map-underscore-to-camel-case",
+      "type": "java.lang.Boolean",
+      "description": "是否开启下划线转驼峰"
+    },
+    {
+      "name": "mybatis-plus.configuration.log-impl",
+      "type": "java.lang.Class",
+      "description": "MyBatis 日志实现类"
+    },
+    {
+      "name": "knife4j",
+      "type": "java.util.Map<java.lang.String,java.lang.Object>",
+      "description": "Knife4j (增强 Swagger) 配置"
+    },
+    {
+      "name": "knife4j.enable",
+      "type": "java.lang.Boolean",
+      "description": "是否启用 Knife4j"
+    },
+    {
+      "name": "knife4j.setting.language",
+      "type": "java.lang.String",
+      "description": "Knife4j 界面语言"
+    },
+    {
+      "name": "rocketmq",
+      "type": "java.util.Map<java.lang.String,java.lang.Object>",
+      "description": "RocketMQ 配置"
+    },
+    {
+      "name": "rocketmq.name-server",
+      "type": "java.lang.String",
+      "description": "RocketMQ NameServer 地址"
+    },
+    {
+      "name": "rocketmq.producer.group",
+      "type": "java.lang.String",
+      "description": "生产者组名"
+    },
+    {
+      "name": "rocketmq.producer.send-message-timeout",
+      "type": "java.lang.Integer",
+      "description": "发送消息超时时间（毫秒）"
+    },
+    {
+      "name": "rocketmq.producer.retry-times-when-send-failed",
+      "type": "java.lang.Integer",
+      "description": "发送失败重试次数"
+    },
+    {
+      "name": "resilience4j",
+      "type": "java.util.Map<java.lang.String,java.lang.Object>",
+      "description": "Resilience4j 熔断器配置"
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 package com.xytgy.teamallbackend.utils;
 
+import com.xytgy.teamallbackend.properties.CacheProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -11,7 +12,6 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
@@ -50,16 +50,16 @@ public class RedisUtils {
             StringRedisTemplate stringRedisTemplate,
             ObjectMapper objectMapper,
             BloomFilterManager bloomFilterManager,
-            @Value("${cache.local.max-size:512}") long localMaxSize,
-            @Value("${cache.local.expire-seconds:60}") long localExpireSeconds) {
+            CacheProperties cacheProperties) {
         this.stringRedisTemplate = stringRedisTemplate;
         this.objectMapper = objectMapper;
         this.bloomFilterManager = bloomFilterManager;
         this.localCache = Caffeine.newBuilder()
-                .maximumSize(localMaxSize)
-                .expireAfterWrite(localExpireSeconds, TimeUnit.SECONDS)
+                .maximumSize(cacheProperties.getLocal().getMaxSize())
+                .expireAfterWrite(cacheProperties.getLocal().getExpireSeconds(), TimeUnit.SECONDS)
                 .build();
-        log.info("L1 本地缓存初始化: maxSize={}, expireSeconds={}", localMaxSize, localExpireSeconds);
+        log.info("L1 本地缓存初始化: maxSize={}, expireSeconds={}",
+                cacheProperties.getLocal().getMaxSize(), cacheProperties.getLocal().getExpireSeconds());
     }
 
     // ======================== 读取 ========================

@@ -1,5 +1,6 @@
 package com.xytgy.teamallbackend.config.security;
 
+import com.xytgy.teamallbackend.common.UserRole;
 import com.xytgy.teamallbackend.module.user.service.UserService;
 import com.xytgy.teamallbackend.module.shop.service.ShopService;
 import com.xytgy.teamallbackend.security.JwtAuthenticationToken;

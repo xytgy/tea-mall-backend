@@ -1,4 +1,4 @@
-CREATE TABLE flash_sale (
+CREATE TABLE IF NOT EXISTS flash_sale (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     title VARCHAR(100) NOT NULL,
     start_time DATETIME NOT NULL,
@@ -9,7 +9,7 @@ CREATE TABLE flash_sale (
     is_deleted TINYINT DEFAULT 0
 );
 
-CREATE TABLE flash_sale_product (
+CREATE TABLE IF NOT EXISTS flash_sale_product (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     flash_sale_id BIGINT NOT NULL,
     product_id BIGINT NOT NULL,
@@ -20,7 +20,7 @@ CREATE TABLE flash_sale_product (
     create_time DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE flash_sale_whitelist (
+CREATE TABLE IF NOT EXISTS flash_sale_whitelist (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     flash_sale_id BIGINT NOT NULL,
     user_id BIGINT NOT NULL,
@@ -28,7 +28,7 @@ CREATE TABLE flash_sale_whitelist (
     UNIQUE KEY uk_whitelist (flash_sale_id, user_id)
 );
 
-CREATE TABLE flash_sale_failed_order (
+CREATE TABLE IF NOT EXISTS flash_sale_failed_order (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     transaction_id VARCHAR(64) NOT NULL UNIQUE,
     user_id BIGINT NOT NULL,
@@ -40,7 +40,7 @@ CREATE TABLE flash_sale_failed_order (
     create_time DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE flash_sale_audit_log (
+CREATE TABLE IF NOT EXISTS flash_sale_audit_log (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     flash_sale_id BIGINT NOT NULL,
     operator_id BIGINT NOT NULL,

@@ -1,7 +1,7 @@
 package com.xytgy.teamallbackend.config.websocket;
 
+import com.xytgy.teamallbackend.properties.CorsProperties;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.socket.config.annotation.EnableWebSocket;
 import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
@@ -13,13 +13,11 @@ import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry
 public class WebSocketConfig implements WebSocketConfigurer {
 
     private final ChatWebSocketHandler chatWebSocketHandler;
-
-    @Value("${cors.allowed-origins:*}")
-    private String[] allowedOrigins;
+    private final CorsProperties corsProperties;
 
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
         registry.addHandler(chatWebSocketHandler, "/ws/chat")
-                .setAllowedOrigins(allowedOrigins);
+                .setAllowedOrigins(corsProperties.getAllowedOrigins().split(","));
     }
 }

@@ -1,7 +1,6 @@
 package com.xytgy.teamallbackend.config.security;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -15,6 +14,8 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import com.xytgy.teamallbackend.properties.CorsProperties;
+import com.xytgy.teamallbackend.properties.DocsProperties;
 import com.xytgy.teamallbackend.security.SecurityConstants;
 
 import java.util.List;
@@ -39,15 +40,8 @@ public class SecurityConfig {
     private final JwtAuthenticationFilter jwtAuthFilter;
     private final CustomAuthEntryPoint customAuthEntryPoint;
     private final CustomAccessDeniedHandler customAccessDeniedHandler;
-
-    @Value("${cors.allowed-origins:*}")
-    private String[] allowedOrigins;
-
-    /**
-     * 是否开放 API 文档（开发环境为 true，生产环境应设置为 false）
-     */
-    @Value("${docs.enabled:true}")
-    private boolean docsEnabled;
+    private final CorsProperties corsProperties;
+    private final DocsProperties docsProperties;
 
 
 
@@ -64,7 +58,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> {
                     auth.requestMatchers(SecurityConstants.PUBLIC_PATHS).permitAll();
                     // 仅在 docs.enabled=true 时开放 API 文档访问
-                    if (docsEnabled) {
+                    if (docsProperties.isEnabled()) {
                         auth.requestMatchers(SecurityConstants.DOCS_PATHS).permitAll();
                     }
                     auth.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll();
@@ -79,10 +73,10 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        // 通配符 * 与 allowCredentials=true 互斥，防止任意来源携带凭证的跨域攻击
-        boolean isWildcard = List.of(allowedOrigins).contains("*");
+        String[] origins = corsProperties.getAllowedOrigins().split(",");
+        boolean isWildcard = List.of(origins).contains("*");
 
-        for (String origin : allowedOrigins) {
+        for (String origin : origins) {
             config.addAllowedOriginPattern(origin);
         }
 

@@ -16,7 +16,7 @@
   UNIQUE KEY `uk_useraccount` (`useraccount`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户表';
 
-CREATE TABLE `user_address` (
+CREATE TABLE IF NOT EXISTS `user_address` (
   `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键ID',
   `user_id` BIGINT NOT NULL COMMENT '所属用户ID',
   `receiver_name` VARCHAR(50) NOT NULL COMMENT '收货人姓名',
@@ -29,7 +29,7 @@ CREATE TABLE `user_address` (
   KEY `idx_user_address_user_id` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户收货地址表';
 
-CREATE TABLE `shop` (
+CREATE TABLE IF NOT EXISTS `shop` (
   `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键ID',
   `user_id` BIGINT NOT NULL COMMENT '关联的用户ID(商家账号)',
   `shop_name` VARCHAR(255) NOT NULL COMMENT '店铺名称',
@@ -40,7 +40,7 @@ CREATE TABLE `shop` (
   UNIQUE KEY `uk_shop_user_id` (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商家店铺表';
 
-CREATE TABLE `product` (
+CREATE TABLE IF NOT EXISTS `product` (
   `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键ID',
   `name` VARCHAR(100) NOT NULL COMMENT '商品名称',
   `description` TEXT COMMENT '商品描述',
@@ -60,7 +60,7 @@ CREATE TABLE `product` (
   KEY `idx_product_audit_status` (`audit_status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商品表';
 
-CREATE TABLE `product_review` (
+CREATE TABLE IF NOT EXISTS `product_review` (
   `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键',
   `product_id` BIGINT NOT NULL COMMENT '商品ID',
   `user_id` BIGINT NOT NULL COMMENT '评价用户ID',
@@ -71,7 +71,7 @@ CREATE TABLE `product_review` (
   KEY `idx_product_review_product_id` (`product_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商品评价表';
 
-CREATE TABLE `cart` (
+CREATE TABLE IF NOT EXISTS `cart` (
   `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键ID',
   `user_id` BIGINT NOT NULL COMMENT '用户ID',
   `product_id` BIGINT NOT NULL COMMENT '商品ID',
@@ -83,7 +83,7 @@ CREATE TABLE `cart` (
   KEY `idx_cart_product_id` (`product_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='购物车表';
 
-CREATE TABLE `orders` (
+CREATE TABLE IF NOT EXISTS `orders` (
   `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键ID',
   `order_no` VARCHAR(50) NOT NULL COMMENT '订单号',
   `user_id` BIGINT NOT NULL COMMENT '用户ID',
@@ -108,7 +108,7 @@ CREATE TABLE `orders` (
   KEY `idx_orders_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='订单表';
 
-CREATE TABLE `order_item` (
+CREATE TABLE IF NOT EXISTS `order_item` (
   `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键ID',
   `order_id` BIGINT NOT NULL COMMENT '订单ID',
   `product_id` BIGINT NOT NULL COMMENT '商品ID',
@@ -121,7 +121,7 @@ CREATE TABLE `order_item` (
   KEY `idx_order_item_product_id` (`product_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='订单明细表';
 
-CREATE TABLE `payment_record` (
+CREATE TABLE IF NOT EXISTS `payment_record` (
   `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键',
   `order_id` BIGINT NOT NULL COMMENT '关联业务订单 ID',
   `out_trade_no` VARCHAR(64) NOT NULL COMMENT '商户支付流水号',
@@ -136,7 +136,7 @@ CREATE TABLE `payment_record` (
   KEY `idx_payment_record_order_id` (`order_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='支付流水表';
 
-CREATE TABLE `favorite` (
+CREATE TABLE IF NOT EXISTS `favorite` (
   `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键',
   `user_id` BIGINT NOT NULL COMMENT '用户ID',
   `product_id` BIGINT NOT NULL COMMENT '商品ID',
@@ -146,7 +146,7 @@ CREATE TABLE `favorite` (
   UNIQUE KEY `uk_favorite_user_product` (`user_id`, `product_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户收藏表';
 
-CREATE TABLE `feedback` (
+CREATE TABLE IF NOT EXISTS `feedback` (
   `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '反馈ID',
   `user_id` BIGINT DEFAULT NULL COMMENT '提交人ID (如用户未登录或游客，可为空)',
   `type` VARCHAR(50) NOT NULL COMMENT '反馈类型 (功能建议, 内容错误, 界面美化, 其他问题)',
@@ -160,7 +160,7 @@ CREATE TABLE `feedback` (
   KEY `idx_feedback_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='意见反馈表';
 
-CREATE TABLE `support_ticket` (
+CREATE TABLE IF NOT EXISTS `support_ticket` (
   `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '咨询记录ID',
   `user_id` BIGINT NOT NULL COMMENT '发起咨询的用户ID',
   `category` VARCHAR(50) NOT NULL COMMENT '咨询分类 (如: 订单问题, 产品咨询, 其他问题)',
