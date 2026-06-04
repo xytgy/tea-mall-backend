@@ -26,7 +26,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import com.xytgy.teamallbackend.security.SecurityUtils;
 import java.time.format.DateTimeFormatter;
+import com.xytgy.teamallbackend.module.user.dto.UserInfoCache;
 import com.xytgy.teamallbackend.utils.AliyunOSSUtils;
+import com.xytgy.teamallbackend.utils.RedisUtils;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.util.Base64;
@@ -52,6 +54,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     private static final String USER_STATUS_KEY_PREFIX = "user:status:";
     private static final String LOGIN_USER_KEY_PREFIX = "login:user:";
     private static final String REFRESH_TOKEN_KEY_PREFIX = "login:refresh:token:";
+    private static final String USER_INFO_CACHE_PREFIX = "user:info:";
+    /** 用户信息缓存 TTL：7 天（与 Refresh Token 一致） */
+    private static final long USER_INFO_CACHE_TTL_MINUTES = 7 * 24 * 60;
     /**
      * 用户 Refresh Token 集合前缀，用于退出登录时批量撤销
      * key: login:user:refresh:{userId}, value: Set of refreshTokens
@@ -64,6 +69,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     private final ShopService shopService;
     private final AliyunOSSUtils aliyunOSSUtils;
     private final RateLimitService rateLimitService;
+    private final RedisUtils redisUtils;
     
     private final UserStatsMapper userStatsMapper;
 
@@ -172,6 +178,11 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
                 "online",
                 7, TimeUnit.DAYS
         );
+
+        // 写入用户信息缓存（供 JwtAuthenticationFilter 快速校验，避免每次查 DB）
+        cacheUserInfo(user.getId(), new UserInfoCache(
+                user.getStatus() == null || user.getStatus() != 0,
+                frontendRole, shopId));
 
         // 封装返回数据
         LoginResponse.UserInfo userInfo = copyMapper.toUserInfo(user);
@@ -308,6 +319,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         user.setStatus(status);
         updateById(user);
         cacheUserStatus(user.getId(), user.getStatus());
+        // 同步更新用户信息缓存中的 enabled 状态
+        UserInfoCache cached = redisUtils.get(USER_INFO_CACHE_PREFIX + id, UserInfoCache.class);
+        if (cached != null) {
+            cached.setEnabled(status != 0);
+            cacheUserInfo(id, cached);
+        }
     }
 
     @Override
@@ -344,6 +361,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         }
         // 清除在线状态
         stringRedisTemplate.delete(LOGIN_USER_KEY_PREFIX + userId);
+        // 清除用户信息缓存
+        redisUtils.delete(USER_INFO_CACHE_PREFIX + userId);
         // 撤销该用户的所有 RefreshToken，防止退出后仍可刷新
         revokeAllRefreshTokens(userId);
     }
@@ -491,6 +510,17 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
                     30, java.util.concurrent.TimeUnit.MINUTES);
         } catch (Exception ignored) {
             // Redis 故障时不影响主流程
+        }
+    }
+
+    /**
+     * 写入用户信息缓存（L1 Caffeine + L2 Redis），自动处理穿透/雪崩/击穿
+     */
+    private void cacheUserInfo(Long userId, UserInfoCache info) {
+        try {
+            redisUtils.set(USER_INFO_CACHE_PREFIX + userId, info, USER_INFO_CACHE_TTL_MINUTES);
+        } catch (Exception e) {
+            // Redis 故障不影响主流程，过滤器会降级查 DB
         }
     }
 
