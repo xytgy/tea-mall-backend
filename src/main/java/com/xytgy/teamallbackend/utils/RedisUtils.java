@@ -19,6 +19,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
@@ -250,18 +251,30 @@ public class RedisUtils {
      * @param loader       回源加载函数
      */
     public <T> T getOrLoadHot(String hotKey, Class<T> type, long expireAfter, Supplier<T> loader) {
+        return getOrLoadHotInternal(hotKey, json -> deserializeHot(json, hotKey, type), expireAfter, loader);
+    }
+
+    public <T> T getOrLoadHot(String hotKey, TypeReference<T> typeRef, long expireAfter, Supplier<T> loader) {
+        return getOrLoadHotInternal(hotKey, json -> deserializeHotRef(json, hotKey, typeRef), expireAfter, loader);
+    }
+
+    /**
+     * P2#19: 热点数据加载的模板方法，消除两个 getOrLoadHot 的重复代码。
+     * 反序列化由调用方通过 wrapperDeserializer 参数传入。
+     */
+    private <T> T getOrLoadHotInternal(String hotKey, Function<String, HotCacheWrapper<T>> wrapperDeserializer,
+                                        long expireAfter, Supplier<T> loader) {
         String json = localCache.getIfPresent(hotKey);
         if (json != null) {
-            HotCacheWrapper<T> wrapper = deserializeHot(json, hotKey, type);
+            HotCacheWrapper<T> wrapper = wrapperDeserializer.apply(json);
             if (wrapper != null && !wrapper.isLogicallyExpired()) {
                 return wrapper.getData();
             }
-            // 逻辑已过期，走异步刷新流程
         } else {
             json = stringRedisTemplate.opsForValue().get(hotKey);
             if (json != null) {
                 localCache.put(hotKey, json);
-                HotCacheWrapper<T> wrapper = deserializeHot(json, hotKey, type);
+                HotCacheWrapper<T> wrapper = wrapperDeserializer.apply(json);
                 if (wrapper != null && !wrapper.isLogicallyExpired()) {
                     return wrapper.getData();
                 }
@@ -289,69 +302,13 @@ public class RedisUtils {
 
         // 未拿到锁：返回旧数据（可能过期），等待其他线程刷新
         if (json != null) {
-            HotCacheWrapper<T> wrapper = deserializeHot(json, hotKey, type);
+            HotCacheWrapper<T> wrapper = wrapperDeserializer.apply(json);
             if (wrapper != null) {
                 return wrapper.getData();
             }
         }
 
         // 首次加载且无锁：降级为同步加载
-        T data = loader.get();
-        long expireAt = System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(expireAfter);
-        HotCacheWrapper<T> wrapper = new HotCacheWrapper<>(data, expireAt);
-        try {
-            String newJson = objectMapper.writeValueAsString(wrapper);
-            localCache.put(hotKey, newJson);
-            stringRedisTemplate.opsForValue().set(hotKey, newJson);
-        } catch (Exception e) {
-            log.error("热点缓存首次写入失败, key={}", hotKey, e);
-        }
-        return data;
-    }
-
-    public <T> T getOrLoadHot(String hotKey, TypeReference<T> typeRef, long expireAfter, Supplier<T> loader) {
-        String json = localCache.getIfPresent(hotKey);
-        if (json != null) {
-            HotCacheWrapper<T> wrapper = deserializeHotRef(json, hotKey, typeRef);
-            if (wrapper != null && !wrapper.isLogicallyExpired()) {
-                return wrapper.getData();
-            }
-        } else {
-            json = stringRedisTemplate.opsForValue().get(hotKey);
-            if (json != null) {
-                localCache.put(hotKey, json);
-                HotCacheWrapper<T> wrapper = deserializeHotRef(json, hotKey, typeRef);
-                if (wrapper != null && !wrapper.isLogicallyExpired()) {
-                    return wrapper.getData();
-                }
-            }
-        }
-
-        boolean locked = tryHotLock(hotKey);
-        if (locked) {
-            try {
-                T data = loader.get();
-                long expireAt = System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(expireAfter);
-                HotCacheWrapper<T> wrapper = new HotCacheWrapper<>(data, expireAt);
-                String newJson = objectMapper.writeValueAsString(wrapper);
-                localCache.put(hotKey, newJson);
-                stringRedisTemplate.opsForValue().set(hotKey, newJson);
-                return data;
-            } catch (Exception e) {
-                log.error("热点缓存回源失败, key={}", hotKey, e);
-                throw new RuntimeException("热点缓存回源失败", e);
-            } finally {
-                unlockHot(hotKey);
-            }
-        }
-
-        if (json != null) {
-            HotCacheWrapper<T> wrapper = deserializeHotRef(json, hotKey, typeRef);
-            if (wrapper != null) {
-                return wrapper.getData();
-            }
-        }
-
         T data = loader.get();
         long expireAt = System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(expireAfter);
         HotCacheWrapper<T> wrapper = new HotCacheWrapper<>(data, expireAt);

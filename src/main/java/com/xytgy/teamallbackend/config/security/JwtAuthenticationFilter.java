@@ -1,6 +1,7 @@
 package com.xytgy.teamallbackend.config.security;
 
 import com.xytgy.teamallbackend.module.user.service.UserService;
+import com.xytgy.teamallbackend.module.shop.service.ShopService;
 import com.xytgy.teamallbackend.security.JwtAuthenticationToken;
 import com.xytgy.teamallbackend.utils.JwtUtils;
 import io.jsonwebtoken.ExpiredJwtException;
@@ -47,6 +48,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
     private final UserService userService;
+    private final ShopService shopService;
 
     private static final String LOGIN_USER_KEY_PREFIX = "login:user:";
     private static final String ROLE_USER = "ROLE_USER";
@@ -102,6 +104,17 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             Integer role = (Integer) claims.get("role");
             Object shopIdObj = claims.get("shopId");
             Long shopId = shopIdObj != null ? Long.valueOf(shopIdObj.toString()) : null;
+
+            // 商家用户：校验 JWT 中的 shopId 是否与数据库一致，防止 shopId 伪造
+            if (role != null && role == 1 && shopId != null) {
+                Long actualShopId = shopService.getShopIdByUserId(userId);
+                if (actualShopId == null || !actualShopId.equals(shopId)) {
+                    log.warn("商家 shopId 不一致: userId={}, jwtShopId={}, dbShopId={}", userId, shopId, actualShopId);
+                    writeUnauthorized(response, 401, "店铺信息异常，请重新登录");
+                    return;
+                }
+            }
+
             String authority = toAuthority(role);
             List<SimpleGrantedAuthority> authorities = List.of(new SimpleGrantedAuthority(authority));
 

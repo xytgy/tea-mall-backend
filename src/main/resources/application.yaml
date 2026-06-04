@@ -90,6 +90,16 @@ rocketmq:
     send-message-timeout: 3000
     retry-times-when-send-failed: 2
 
+resilience4j:
+  circuitbreaker:
+    instances:
+      redis:
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+        register-health-indicator: true
+
 flash-sale:
   captcha-pool-size: 1000
   captcha-expire-seconds: 60

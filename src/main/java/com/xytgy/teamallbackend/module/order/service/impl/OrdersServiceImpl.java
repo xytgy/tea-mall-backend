@@ -136,7 +136,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         order.setOrderNo(generateOrderNo(userId));
         order.setUserId(userId);
         order.setTotalAmount(totalAmount);
-        order.setStatus(0);
+        order.setStatus(Orders.STATUS_PENDING_PAYMENT);
         save(order);
 
         List<OrderItem> orderItems = new ArrayList<>();
@@ -227,10 +227,10 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
     @Override
     public void confirmOrder(Long userId, Long orderId) {
         Orders order = getUserOrder(userId, orderId);
-        if (!Objects.equals(order.getStatus(), 2)) {
+        if (!Objects.equals(order.getStatus(), Orders.STATUS_SHIPPED)) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "仅已发货订单可确认收货");
         }
-        order.setStatus(3);
+        order.setStatus(Orders.STATUS_COMPLETED);
         updateById(order);
     }
 
@@ -238,7 +238,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
     public void cancelOrder(Long userId, Long orderId) {
         //先做检验
         Orders order = getUserOrder(userId, orderId);
-        if (!Objects.equals(order.getStatus(), 0)) {
+        if (!Objects.equals(order.getStatus(), Orders.STATUS_PENDING_PAYMENT)) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "仅待支付订单可取消");
         }
 
@@ -326,7 +326,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
             }
         }
 
-        order.setStatus(4);
+        order.setStatus(Orders.STATUS_CANCELLED);
         updateById(order);
     }
 
@@ -343,10 +343,10 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         }
         try {
             Orders order = getUserOrder(userId, request.getOrderId());
-            if (!Objects.equals(order.getStatus(), 0)) {
+            if (!Objects.equals(order.getStatus(), Orders.STATUS_PENDING_PAYMENT)) {
                 throw new ServiceException(ResultCode.BAD_REQUEST, "订单状态不正确，无法支付");
             }
-            order.setStatus(1);
+            order.setStatus(Orders.STATUS_PAID);
             updateById(order);
         } finally {
             distributedLock.unlock(lockKey);
@@ -356,12 +356,11 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
     @Override
     public void applyRefund(Long userId, Long orderId) {
         Orders order = getUserOrder(userId, orderId);
-        if (!Objects.equals(order.getStatus(), 1)) { // 1为已支付(待发货)
+        if (!Objects.equals(order.getStatus(), Orders.STATUS_PAID)) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "仅已支付待发货的订单可申请退款");
         }
         
-        // 修改为退款中状态(6)
-        order.setStatus(6);
+        order.setStatus(Orders.STATUS_REFUND_REQUESTED);
         updateById(order);
     }
 
@@ -379,7 +378,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         }
 
         Orders order = getUserOrder(userId, request.getOrderId());
-        if (!Objects.equals(order.getStatus(), 3)) { // 3为已完成(待评价)
+        if (!Objects.equals(order.getStatus(), Orders.STATUS_COMPLETED)) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "订单未完成或已评价");
         }
 
@@ -389,14 +388,10 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         review.setUserId(userId);
         review.setRating(request.getRating());
         review.setContent(request.getContent().trim());
-        // 如果有图片字段，可以转为 JSON 存入，目前表结构暂无 images 字段，可忽略或补充
         productReviewMapper.insert(review);
 
-        // 修改订单状态为已评价(4 或 其他约定值，根据注释：4为已取消/已评价，视具体业务而定，假设已评价保持不变或新状态)
-        // 假设需求说改状态为 4，但原设计4是已取消。
-        // 为了防冲突，假设评价后订单状态更新为 5（已评价），或者业务逻辑默认已完成的订单通过某个标记区分
-        // 这里按你文档里的说法：更改订单状态为 `4` (已评价)
-        order.setStatus(4); 
+        // 评价后标记订单为已取消（复用状态4，实际业务中可考虑增加独立的"已评价"状态）
+        order.setStatus(Orders.STATUS_CANCELLED); 
         updateById(order);
     }
     @ReadOnly
@@ -460,7 +455,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         if (order == null) {
             throw new ServiceException(ResultCode.NOT_FOUND, "订单不存在");
         }
-        if (!Objects.equals(order.getStatus(), 1)) {
+        if (!Objects.equals(order.getStatus(), Orders.STATUS_PAID)) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "订单当前状态不支持发货");
         }
 
@@ -483,7 +478,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         }
 
         // 更新为已发货状态
-        order.setStatus(2);
+        order.setStatus(Orders.STATUS_SHIPPED);
         updateById(order);
     }
 
@@ -508,10 +503,10 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
             Integer count = ((Number) map.get("count")).intValue();
             // S131: switch 必须包含 default 分支
             switch (status) {
-                case 0 -> stats.setUnpaid(count);
-                case 1 -> stats.setPacking(count);
-                case 2 -> stats.setDelivering(count);
-                case 3 -> stats.setReviewing(count);
+                case Orders.STATUS_PENDING_PAYMENT -> stats.setUnpaid(count);
+                case Orders.STATUS_PAID -> stats.setPacking(count);
+                case Orders.STATUS_SHIPPED -> stats.setDelivering(count);
+                case Orders.STATUS_COMPLETED -> stats.setReviewing(count);
                 default -> { }
             }
         }
@@ -522,8 +517,8 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
     public List<LogisticsVO> getOrderLogistics(Long userId, Long orderId) {
         Orders order = getUserOrder(userId, orderId);
         
-        // 只有已发货(2)、已完成(3)的订单才有物流信息
-        if (order.getStatus() < 2 && order.getStatus() != 4) {
+        // 只有已发货、已完成、已取消的订单才有物流信息
+        if (order.getStatus() < Orders.STATUS_SHIPPED && order.getStatus() != Orders.STATUS_CANCELLED) {
             throw new ServiceException(ResultCode.NOT_FOUND, "订单暂无物流信息");
         }
         
@@ -535,7 +530,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
             ? order.getPayTime() 
             : order.getCreateTime();
             
-        if (order.getStatus() == 3 || order.getStatus() == 4) {
+        if (order.getStatus() == Orders.STATUS_COMPLETED || order.getStatus() == Orders.STATUS_CANCELLED) {
             logisticsList.add(LogisticsVO.builder()
                 .content("包裹已签收，签收人：本人签收。感谢您使用顺丰速运，期待再次为您服务。")
                 .time(updateTime.plusHours(48).format(TIME_FORMATTER))
@@ -597,7 +592,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
     @Override
     public void approveRefund(Long merchantId, Long orderId) {
         Orders order = getMerchantOrder(merchantId, orderId);
-        if (!Objects.equals(order.getStatus(), 6)) {
+        if (!Objects.equals(order.getStatus(), Orders.STATUS_REFUND_REQUESTED)) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "订单状态不正确，无法同意退款");
         }
 
@@ -649,15 +644,15 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
     @Transactional(rollbackFor = Exception.class)
     public void doApproveRefundInTransaction(Orders order) {
         boolean updated = lambdaUpdate()
-                .set(Orders::getStatus, 7)
+                .set(Orders::getStatus, Orders.STATUS_REFUNDED)
                 .set(Orders::getRefusalReason, null)
                 .eq(Orders::getId, order.getId())
-                .eq(Orders::getStatus, 6)
+                .eq(Orders::getStatus, Orders.STATUS_REFUND_REQUESTED)
                 .update();
                 
         if (!updated) {
             Orders latest = getById(order.getId());
-            if (latest != null && Objects.equals(latest.getStatus(), 7)) {
+            if (latest != null && Objects.equals(latest.getStatus(), Orders.STATUS_REFUNDED)) {
                 return;
             }
             throw new ServiceException(ResultCode.BAD_REQUEST, "操作失败，订单状态已发生改变");
@@ -672,16 +667,16 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
             throw new ServiceException(ResultCode.BAD_REQUEST, "拒绝原因不能为空");
         }
         Orders order = getMerchantOrder(merchantId, orderId);
-        if (!Objects.equals(order.getStatus(), 6)) { // 6为退款申请中
+        if (!Objects.equals(order.getStatus(), Orders.STATUS_REFUND_REQUESTED)) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "订单状态不正确，无法拒绝退款");
         }
 
         // 并发控制：使用带状态条件的 update
         boolean updated = lambdaUpdate()
-                .set(Orders::getStatus, 8)
+                .set(Orders::getStatus, Orders.STATUS_REFUND_REJECTED)
                 .set(Orders::getRefusalReason, reason)
                 .eq(Orders::getId, order.getId())
-                .eq(Orders::getStatus, 6)
+                .eq(Orders::getStatus, Orders.STATUS_REFUND_REQUESTED)
                 .update();
                 
         if (!updated) {

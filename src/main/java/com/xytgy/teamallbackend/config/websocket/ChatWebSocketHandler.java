@@ -9,6 +9,7 @@ import com.xytgy.teamallbackend.module.chat.vo.ChatMessageVO;
 import com.xytgy.teamallbackend.utils.JwtUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.*;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
@@ -37,10 +38,13 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private final ConcurrentHashMap<Long, WebSocketSession> userSessions = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Long, WebSocketSession> shopSessions = new ConcurrentHashMap<>();
 
+    private static final String LOGIN_USER_KEY_PREFIX = "login:user:";
+
     private final JwtUtils jwtUtils;
     private final ChatService chatService;
     private final ObjectMapper objectMapper;
     private final MqProducer mqProducer;
+    private final StringRedisTemplate stringRedisTemplate;
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
@@ -69,14 +73,19 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             return;
         }
 
-        //得到用户id
         Long userId = parseLong(claims.get("id"));
         if (userId == null) {
             session.close(CloseStatus.POLICY_VIOLATION);
             return;
         }
 
-        //得到权限和商家ID
+        // 防止已登出用户通过旧 Token 建立 WebSocket 连接
+        if (Boolean.FALSE.equals(stringRedisTemplate.hasKey(LOGIN_USER_KEY_PREFIX + userId))) {
+            log.warn("WebSocket 连接被拒绝：用户未在线, userId={}", userId);
+            session.close(CloseStatus.POLICY_VIOLATION);
+            return;
+        }
+
         Integer role = parseInt(claims.get("role"));
         Long shopId = parseLong(claims.get("shopId"));
 

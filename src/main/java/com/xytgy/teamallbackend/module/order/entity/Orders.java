@@ -15,6 +15,35 @@ import lombok.Data;
 @TableName(value ="orders")
 @Data
 public class Orders {
+
+    /** 待支付 */
+    public static final int STATUS_PENDING_PAYMENT = 0;
+    /** 已支付（待发货） */
+    public static final int STATUS_PAID = 1;
+    /** 已发货（待收货） */
+    public static final int STATUS_SHIPPED = 2;
+    /** 已完成 */
+    public static final int STATUS_COMPLETED = 3;
+    /** 已取消 */
+    public static final int STATUS_CANCELLED = 4;
+    /** 退款申请中 */
+    public static final int STATUS_REFUND_REQUESTED = 6;
+    /** 已退款 */
+    public static final int STATUS_REFUNDED = 7;
+    /** 退款被拒 */
+    public static final int STATUS_REFUND_REJECTED = 8;
+
+    /** 结算状态：未结算 */
+    public static final int SETTLE_PENDING = 0;
+    /** 结算状态：结算中 */
+    public static final int SETTLE_PROCESSING = 1;
+    /** 结算状态：已结算 */
+    public static final int SETTLE_DONE = 2;
+
+    /** 订单来源：普通 */
+    public static final int SOURCE_NORMAL = 0;
+    /** 订单来源：秒杀 */
+    public static final int SOURCE_FLASH_SALE = 1;
     /**
      * 主键ID
      */

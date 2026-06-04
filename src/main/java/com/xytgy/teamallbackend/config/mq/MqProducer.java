@@ -3,22 +3,19 @@ package com.xytgy.teamallbackend.config.mq;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.rocketmq.client.producer.DefaultMQProducer;
-import org.apache.rocketmq.client.producer.SendResult;
-import org.apache.rocketmq.common.message.Message;
+import org.apache.rocketmq.spring.core.RocketMQTemplate;
+import org.springframework.messaging.Message;
+import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
-
-import java.nio.charset.StandardCharsets;
-import java.util.Map;
 
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class MqProducer {
 
-    private final DefaultMQProducer producer;
+    private final RocketMQTemplate rocketMQTemplate;
     private final ObjectMapper objectMapper;
 
     /**
@@ -63,9 +60,11 @@ public class MqProducer {
 
     private void doSend(String topic, String tag, String key, String body) {
         try {
-            Message msg = new Message(topic, tag, key, body.getBytes(StandardCharsets.UTF_8));
-            SendResult result = producer.send(msg);
-            log.debug("MQ 消息发送成功: topic={}, tag={}, key={}, msgId={}", topic, tag, key, result.getMsgId());
+            Message<String> msg = MessageBuilder.withPayload(body)
+                    .setHeader("KEYS", key)
+                    .build();
+            rocketMQTemplate.syncSend(topic + ":" + tag, msg);
+            log.debug("MQ 消息发送成功: topic={}, tag={}, key={}", topic, tag, key);
         } catch (Exception e) {
             log.error("MQ 消息发送失败: topic={}, tag={}, key={}", topic, tag, key, e);
         }
@@ -73,10 +72,11 @@ public class MqProducer {
 
     private void doSendDelay(String topic, String tag, String key, String body, int delayLevel) {
         try {
-            Message msg = new Message(topic, tag, key, body.getBytes(StandardCharsets.UTF_8));
-            msg.setDelayTimeLevel(delayLevel);
-            SendResult result = producer.send(msg);
-            log.debug("MQ 延迟消息发送成功: topic={}, tag={}, key={}, delayLevel={}, msgId={}", topic, tag, key, delayLevel, result.getMsgId());
+            Message<String> msg = MessageBuilder.withPayload(body)
+                    .setHeader("KEYS", key)
+                    .build();
+            rocketMQTemplate.syncSend(topic + ":" + tag, msg, 3000, delayLevel);
+            log.debug("MQ 延迟消息发送成功: topic={}, tag={}, key={}, delayLevel={}", topic, tag, key, delayLevel);
         } catch (Exception e) {
             log.error("MQ 延迟消息发送失败: topic={}, tag={}, key={}", topic, tag, key, e);
         }

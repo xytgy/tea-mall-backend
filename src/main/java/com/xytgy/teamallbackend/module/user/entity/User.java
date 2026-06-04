@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
 import java.time.LocalDateTime;
 
@@ -28,8 +29,9 @@ public class User {
     private String userAccount;
 
     /**
-     * 加密密码
+     * 加密密码（BCrypt 哈希，序列化时必须排除，防止意外泄露）
      */
+    @JsonIgnore
     @TableField("password")
     private String password;
 

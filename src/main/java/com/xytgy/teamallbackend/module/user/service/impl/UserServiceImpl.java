@@ -438,8 +438,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             
             // 使用 ByteArrayInputStream 包装字节数组
             try (InputStream inputStream = new ByteArrayInputStream(decodedBytes)) {
-                // 生成临时文件名（带扩展名）用于 OSS 上传
-                String fileName = "avatar_" + userId + extension;
+                // 使用 UUID 避免文件名可预测，防止用户头像被枚举遍历
+                String fileName = UUID.randomUUID().toString().replace("-", "") + extension;
                 
                 // 调用 OSS 工具类上传文件，并获取可访问的 URL
                 String avatarUrl = aliyunOSSUtils.uploadAvatar(inputStream, fileName);
