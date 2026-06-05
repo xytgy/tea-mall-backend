@@ -232,7 +232,19 @@ public class PaymentController {
         }
         String status = response.getTradeStatus();
         if ("TRADE_SUCCESS".equals(status) || "TRADE_FINISHED".equals(status)) {
-            confirmPayment(record, response.getTradeNo());
+            String lockKey = "payment:notify:" + record.getOutTradeNo();
+            if (!distributedLock.tryLock(lockKey)) {
+                return PaymentRecord.STATUS_PAID;
+            }
+            try {
+                record = paymentRecordService.getByOutTradeNo(record.getOutTradeNo());
+                if (PaymentRecord.STATUS_PAID.equals(record.getStatus())) {
+                    return PaymentRecord.STATUS_PAID;
+                }
+                confirmPayment(record, response.getTradeNo());
+            } finally {
+                distributedLock.unlock(lockKey);
+            }
             return PaymentRecord.STATUS_PAID;
         }
         if ("WAIT_BUYER_PAY".equals(status)) {

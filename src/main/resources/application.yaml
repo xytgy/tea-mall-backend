@@ -70,6 +70,9 @@ knife4j:
 docs:
   enabled: ${DOCS_ENABLED:true}
 
+mock-pay:
+  enabled: ${MOCK_PAY_ENABLED:false}
+
 cache:
   local:
     max-size: 512

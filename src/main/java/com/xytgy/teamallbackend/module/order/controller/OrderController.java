@@ -22,6 +22,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
@@ -37,6 +38,9 @@ import java.util.List;
 public class OrderController extends BaseController {
 
     private final OrdersService ordersService;
+
+    @Value("${mock-pay.enabled:false}")
+    private boolean mockPayEnabled;
 
     @PostMapping("/create")
     @Operation(summary = "创建订单")
@@ -62,6 +66,10 @@ public class OrderController extends BaseController {
     @PostMapping("/pay")
     @Operation(summary = "支付订单 (模拟支付)")
     public Result<Void> pay(@Valid @RequestBody OrderPayRequest request) {
+        if (!mockPayEnabled) {
+            throw new com.xytgy.teamallbackend.exception.ServiceException(
+                    com.xytgy.teamallbackend.common.ResultCode.NOT_FOUND, "接口不存在");
+        }
         Long userId = currentUserId();
         ordersService.payOrder(userId, request);
         return Result.success(null);
