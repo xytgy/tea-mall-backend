@@ -3,7 +3,7 @@ package com.xytgy.teamallbackend.module.order.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.xytgy.teamallbackend.module.order.entity.PaymentRecord;
-import com.xytgy.teamallbackend.module.order.repository.PaymentRecordMapper;
+import com.xytgy.teamallbackend.module.order.mapper.PaymentRecordMapper;
 import com.xytgy.teamallbackend.module.order.service.PaymentRecordService;
 import org.springframework.stereotype.Service;
 

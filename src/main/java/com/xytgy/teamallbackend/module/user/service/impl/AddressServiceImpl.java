@@ -6,7 +6,7 @@ import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.module.user.dto.AddressAddRequest;
 import com.xytgy.teamallbackend.module.user.dto.AddressUpdateRequest;
 import com.xytgy.teamallbackend.module.user.entity.Address;
-import com.xytgy.teamallbackend.module.user.repository.AddressMapper;
+import com.xytgy.teamallbackend.module.user.mapper.AddressMapper;
 import com.xytgy.teamallbackend.module.user.service.AddressService;
 import com.xytgy.teamallbackend.common.mapstruct.CopyMapper;
 import lombok.RequiredArgsConstructor;

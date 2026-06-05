@@ -68,7 +68,7 @@ knife4j:
 
 # API 文档访问控制（生产环境应设置为 false）
 docs:
-  enabled: ${DOCS_ENABLED:true}
+  enabled: ${DOCS_ENABLED:false}
 
 mock-pay:
   enabled: ${MOCK_PAY_ENABLED:false}

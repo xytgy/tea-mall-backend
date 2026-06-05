@@ -9,21 +9,19 @@ import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.module.teacircle.dto.TeaCommentAddRequest;
 import com.xytgy.teamallbackend.module.teacircle.entity.TeaComment;
 import com.xytgy.teamallbackend.module.teacircle.entity.TeaPost;
-import com.xytgy.teamallbackend.module.teacircle.repository.TeaCommentMapper;
+import com.xytgy.teamallbackend.module.teacircle.mapper.TeaCommentMapper;
 import com.xytgy.teamallbackend.module.teacircle.service.TeaCommentService;
-import com.xytgy.teamallbackend.module.teacircle.service.TeaNotificationService;
 import com.xytgy.teamallbackend.module.teacircle.service.TeaPostService;
 import com.xytgy.teamallbackend.module.teacircle.vo.TeaCommentVO;
 import com.xytgy.teamallbackend.module.user.entity.User;
 import com.xytgy.teamallbackend.module.user.service.UserService;
-import com.xytgy.teamallbackend.config.mq.MqConstants;
-import com.xytgy.teamallbackend.config.mq.MqProducer;
+import com.xytgy.teamallbackend.mq.constant.MqConstants;
+import com.xytgy.teamallbackend.mq.producer.MqProducer;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -39,13 +37,11 @@ public class TeaCommentServiceImpl extends ServiceImpl<TeaCommentMapper, TeaComm
 
     private final TeaPostService teaPostService;
 
-    private final TeaNotificationService teaNotificationService;
     private final MqProducer mqProducer;
 
     private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-    public TeaCommentServiceImpl(TeaNotificationService teaNotificationService, TeaPostService teaPostService, UserService userService, MqProducer mqProducer) {
-        this.teaNotificationService = teaNotificationService;
+    public TeaCommentServiceImpl(TeaPostService teaPostService, UserService userService, MqProducer mqProducer) {
         this.teaPostService = teaPostService;
         this.userService = userService;
         this.mqProducer = mqProducer;
@@ -109,9 +105,11 @@ public class TeaCommentServiceImpl extends ServiceImpl<TeaCommentMapper, TeaComm
         }
 
         Set<Long> rootIds = rootComments.stream().map(TeaComment::getId).collect(Collectors.toSet());
+        // 每个一级评论最多查50条子回复，避免热门帖子一次返回几千条
         List<TeaComment> allReplies = this.lambdaQuery()
                 .in(TeaComment::getRootId, rootIds)
                 .orderByAsc(TeaComment::getCreateTime)
+                .last("LIMIT 500")
                 .list();
         Map<Long, List<TeaComment>> replyMap = allReplies.stream()
                 .collect(Collectors.groupingBy(TeaComment::getRootId));

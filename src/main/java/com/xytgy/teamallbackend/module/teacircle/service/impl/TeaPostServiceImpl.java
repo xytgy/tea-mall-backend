@@ -13,19 +13,18 @@ import com.xytgy.teamallbackend.module.teacircle.entity.TeaLike;
 import com.xytgy.teamallbackend.module.teacircle.entity.TeaPost;
 import com.xytgy.teamallbackend.module.teacircle.entity.TeaPostTopic;
 import com.xytgy.teamallbackend.module.teacircle.entity.TeaTopic;
-import com.xytgy.teamallbackend.module.teacircle.repository.TeaLikeMapper;
-import com.xytgy.teamallbackend.module.teacircle.repository.TeaPostMapper;
-import com.xytgy.teamallbackend.module.teacircle.repository.TeaPostTopicMapper;
+import com.xytgy.teamallbackend.module.teacircle.mapper.TeaLikeMapper;
+import com.xytgy.teamallbackend.module.teacircle.mapper.TeaPostMapper;
+import com.xytgy.teamallbackend.module.teacircle.mapper.TeaPostTopicMapper;
 import com.xytgy.teamallbackend.module.teacircle.service.TeaCommentService;
 import com.xytgy.teamallbackend.module.teacircle.service.TeaFollowService;
-import com.xytgy.teamallbackend.module.teacircle.service.TeaNotificationService;
 import com.xytgy.teamallbackend.module.teacircle.service.TeaPostService;
 import com.xytgy.teamallbackend.module.teacircle.service.TeaTopicService;
 import com.xytgy.teamallbackend.module.teacircle.vo.TeaPostVO;
 import com.xytgy.teamallbackend.module.user.entity.User;
 import com.xytgy.teamallbackend.module.user.service.UserService;
-import com.xytgy.teamallbackend.config.mq.MqConstants;
-import com.xytgy.teamallbackend.config.mq.MqProducer;
+import com.xytgy.teamallbackend.mq.constant.MqConstants;
+import com.xytgy.teamallbackend.mq.producer.MqProducer;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.BeanUtils;
@@ -45,7 +44,6 @@ public class TeaPostServiceImpl extends ServiceImpl<TeaPostMapper, TeaPost> impl
     private final TeaLikeMapper teaLikeMapper;
     private final TeaFollowService teaFollowService;
     private final TeaCommentService teaCommentService;
-    private final TeaNotificationService teaNotificationService;
     private final TeaTopicService teaTopicService;
     private final TeaPostTopicMapper teaPostTopicMapper;
     private final ObjectMapper objectMapper;
@@ -57,7 +55,6 @@ public class TeaPostServiceImpl extends ServiceImpl<TeaPostMapper, TeaPost> impl
             TeaFollowService teaFollowService,
             // TeaPostServiceImpl → TeaCommentService → TeaPostServiceImpl 循环依赖，@Lazy 延迟解析打破循环
             @Lazy TeaCommentService teaCommentService,
-            TeaNotificationService teaNotificationService,
             TeaTopicService teaTopicService,
             TeaPostTopicMapper teaPostTopicMapper,
             ObjectMapper objectMapper,
@@ -67,7 +64,6 @@ public class TeaPostServiceImpl extends ServiceImpl<TeaPostMapper, TeaPost> impl
         this.teaLikeMapper = teaLikeMapper;
         this.teaFollowService = teaFollowService;
         this.teaCommentService = teaCommentService;
-        this.teaNotificationService = teaNotificationService;
         this.teaTopicService = teaTopicService;
         this.teaPostTopicMapper = teaPostTopicMapper;
         this.objectMapper = objectMapper;
@@ -81,6 +77,15 @@ public class TeaPostServiceImpl extends ServiceImpl<TeaPostMapper, TeaPost> impl
     @Override
     @Transactional(rollbackFor = Exception.class)
     public TeaPostVO addPost(Long userId, TeaPostAddRequest request) {
+        validatePostRequest(request);
+        TeaPost post = createAndSavePost(userId, request);
+        if (request.getTopics() != null && !request.getTopics().isEmpty()) {
+            bindTopicsToPost(post.getId(), request.getTopics());
+        }
+        return toVO(post, userId);
+    }
+
+    private void validatePostRequest(TeaPostAddRequest request) {
         if (request == null) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "参数错误");
         }
@@ -93,7 +98,9 @@ public class TeaPostServiceImpl extends ServiceImpl<TeaPostMapper, TeaPost> impl
         if (request.getTopics() != null && request.getTopics().size() > 10) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "最多选择 10 个话题");
         }
+    }
 
+    private TeaPost createAndSavePost(Long userId, TeaPostAddRequest request) {
         TeaPost post = new TeaPost();
         post.setUserId(userId);
         post.setContent(StringUtils.hasText(request.getContent()) ? request.getContent().trim() : null);
@@ -107,23 +114,21 @@ public class TeaPostServiceImpl extends ServiceImpl<TeaPostMapper, TeaPost> impl
         post.setLikeCount(0);
         post.setCommentCount(0);
         this.save(post);
-        
-        if (request.getTopics() == null || request.getTopics().isEmpty()) {
-            return toVO(post, userId);
-        }
-        
+        return post;
+    }
+
+    private void bindTopicsToPost(Long postId, List<String> topics) {
         Set<String> topicNames = new LinkedHashSet<>();
-        for (String raw : request.getTopics()) {
-            String n = normalizeTopicName(raw);
-            if (n != null) {
-                topicNames.add(n);
+        for (String raw : topics) {
+            String name = normalizeTopicName(raw);
+            if (name != null) {
+                topicNames.add(name);
             }
         }
-        
         for (String topicName : topicNames) {
             TeaTopic topic = teaTopicService.getOrCreateTopicByName(topicName, "#" + topicName);
             TeaPostTopic rel = new TeaPostTopic();
-            rel.setPostId(post.getId());
+            rel.setPostId(postId);
             rel.setTopicId(topic.getId());
             try {
                 teaPostTopicMapper.insert(rel);
@@ -135,8 +140,6 @@ public class TeaPostServiceImpl extends ServiceImpl<TeaPostMapper, TeaPost> impl
                     .setSql("post_count = post_count + 1")
                     .update();
         }
-
-        return toVO(post, userId);
     }
 
     @ReadOnly
@@ -368,33 +371,40 @@ public class TeaPostServiceImpl extends ServiceImpl<TeaPostMapper, TeaPost> impl
         vo.setCreateTime(post.getCreateTime() != null ? post.getCreateTime().format(FORMATTER) : null);
         vo.setUpdateTime(post.getUpdateTime() != null ? post.getUpdateTime().format(FORMATTER) : null);
         vo.setStatus(1);
+        vo.setImages(parseImageList(post.getImages()));
+        vo.setTopics(resolveTopics(post.getId(), relMap, topicMap));
+        populateAuthor(vo, post.getUserId(), userMap);
+        vo.setIsLiked(currentUserId != null && likedPostIds.contains(post.getId()));
+        vo.setIsFollowing(currentUserId != null && followingUserIds.contains(post.getUserId()));
+        return vo;
+    }
 
-        if (StringUtils.hasText(post.getImages())) {
-            try {
-                vo.setImages(objectMapper.readValue(post.getImages(), new TypeReference<List<String>>() {}));
-            } catch (Exception e) {
-                vo.setImages(Arrays.asList(post.getImages().split(",")));
-            }
-        } else {
-            vo.setImages(Collections.emptyList());
+    private List<String> parseImageList(String imagesJson) {
+        if (!StringUtils.hasText(imagesJson)) {
+            return Collections.emptyList();
         }
+        try {
+            return objectMapper.readValue(imagesJson, new TypeReference<List<String>>() {});
+        } catch (Exception e) {
+            return Arrays.asList(imagesJson.split(","));
+        }
+    }
 
-        // 从预加载的 relMap 中获取话题
-        List<TeaPostTopic> rels = relMap.getOrDefault(post.getId(), Collections.emptyList());
+    private List<String> resolveTopics(Long postId, Map<Long, List<TeaPostTopic>> relMap, Map<Long, TeaTopic> topicMap) {
+        List<TeaPostTopic> rels = relMap.getOrDefault(postId, Collections.emptyList());
         if (rels.isEmpty()) {
-            vo.setTopics(Collections.emptyList());
-        } else {
-            List<String> topics = rels.stream()
-                    .map(r -> topicMap.get(r.getTopicId()))
-                    .filter(Objects::nonNull)
-                    .map(t -> StringUtils.hasText(t.getTitle()) ? t.getTitle() : "#" + t.getName())
-                    .distinct()
-                    .toList();
-            vo.setTopics(topics);
+            return Collections.emptyList();
         }
+        return rels.stream()
+                .map(r -> topicMap.get(r.getTopicId()))
+                .filter(Objects::nonNull)
+                .map(t -> StringUtils.hasText(t.getTitle()) ? t.getTitle() : "#" + t.getName())
+                .distinct()
+                .toList();
+    }
 
-        // 从预加载的 userMap 中获取用户
-        User u = userMap.get(post.getUserId());
+    private void populateAuthor(TeaPostVO vo, Long userId, Map<Long, User> userMap) {
+        User u = userMap.get(userId);
         if (u != null) {
             com.xytgy.teamallbackend.module.teacircle.vo.AuthorVO author = new com.xytgy.teamallbackend.module.teacircle.vo.AuthorVO();
             author.setId(u.getId());
@@ -402,12 +412,6 @@ public class TeaPostServiceImpl extends ServiceImpl<TeaPostMapper, TeaPost> impl
             author.setAvatar(u.getAvatar());
             vo.setAuthor(author);
         }
-
-        // 从预加载的 Set 中判断状态
-        vo.setIsLiked(currentUserId != null && likedPostIds.contains(post.getId()));
-        vo.setIsFollowing(currentUserId != null && followingUserIds.contains(post.getUserId()));
-
-        return vo;
     }
 
     // 单条动态转换（用于 addPost、getPostDetail 等单条场景）

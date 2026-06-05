@@ -1,12 +1,13 @@
 package com.xytgy.teamallbackend.utils;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
+import com.xytgy.teamallbackend.cache.BloomFilterManager;
 import com.xytgy.teamallbackend.properties.CacheProperties;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -16,12 +17,16 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.RequiredArgsConstructor;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
@@ -53,9 +58,8 @@ public class RedisUtils {
     private final ObjectMapper objectMapper;
     private final BloomFilterManager bloomFilterManager;
     private final CacheProperties cacheProperties;
-
-    @Autowired(required = false)
-    private MeterRegistry meterRegistry;
+    @Nullable
+    private final MeterRegistry meterRegistry;
 
     /** L1 本地缓存，在 {@link #init()} 中构建 */
     private Cache<String, String> localCache;
@@ -70,11 +74,19 @@ public class RedisUtils {
     private Timer cacheSourceLoadTimer;
 
     private static final String NULL_PLACEHOLDER = "NULL";
+    private static final String CACHE_MISS_SENTINEL = "__CACHE_MISS__";
     private static final long NULL_TTL_MINUTES = 2;
     private static final double TTL_JITTER_RATIO = 0.2;
     private static final String LOCK_PREFIX = "hot:lock:";
     private static final String METRIC_CACHE_NAME_TAG = "cache.name";
     private static final String METRIC_CACHE_NAME_VALUE = "tea-mall";
+
+    /** 当前 JVM 实例唯一标识，用于分布式锁的 owner 校验 */
+    private final String instanceId = ProcessHandle.current().pid() + ":" + Thread.currentThread().getId();
+
+    /** 原子解锁 Lua 脚本：仅当锁的 owner 与当前实例一致时才删除 */
+    private static final DefaultRedisScript<Long> UNLOCK_SCRIPT =
+            new DefaultRedisScript<>("if redis.call('get',KEYS[1])==ARGV[1] then return redis.call('del',KEYS[1]) else return 0 end", Long.class);
 
     /**
      * 初始化 L1 缓存并注册 Micrometer 指标。
@@ -143,131 +155,34 @@ public class RedisUtils {
 
     // ======================== 读取 ========================
 
-    /**
-     * 从两级缓存中读取数据并反序列化为指定类型。
-     * <p>
-     * 读取路径：L1 → L2，利用 Caffeine 的 {@code get(key, mappingFunction)} 实现原子的 compute-if-absent，
-     * 避免非原子的 getIfPresent + put 竞态。
-     *
-     * @param key  缓存 key
-     * @param type 目标类型
-     * @return 反序列化后的对象，缓存不存在或为空值时返回 {@code null}
-     */
     public <T> T get(String key, Class<T> type) {
-        String json = localCache.get(key, k -> {
-            String redisValue = stringRedisTemplate.opsForValue().get(k);
-            if (redisValue == null) {
-                incrementCounter(l2MissCounter);
-                return null;
-            }
-            incrementCounter(l2HitCounter);
-            return redisValue;
-        });
-
-        if (json != null) {
-            incrementCounter(l1HitCounter);
-            return deserializeL1(json, key, type);
-        }
-
-        incrementCounter(l1MissCounter);
-        return null;
+        String json = getCachedJson(key);
+        return json == null ? null : deserialize(json, key, type);
     }
 
-    /**
-     * 从两级缓存中读取数据并使用 {@link TypeReference} 反序列化（支持泛型）。
-     *
-     * @param key     缓存 key
-     * @param typeRef 泛型类型引用
-     * @return 反序列化后的对象，缓存不存在或为空值时返回 {@code null}
-     */
     public <T> T get(String key, TypeReference<T> typeRef) {
-        String json = localCache.get(key, k -> {
-            String redisValue = stringRedisTemplate.opsForValue().get(k);
-            if (redisValue == null) {
-                incrementCounter(l2MissCounter);
-                return null;
-            }
-            incrementCounter(l2HitCounter);
-            return redisValue;
-        });
-
-        if (json != null) {
-            incrementCounter(l1HitCounter);
-            return deserializeL1(json, key, typeRef);
-        }
-
-        incrementCounter(l1MissCounter);
-        return null;
+        String json = getCachedJson(key);
+        return json == null ? null : deserialize(json, key, typeRef);
     }
 
     // ======================== getOrLoad（Cache-Aside + 两级回填）========================
 
-    /**
-     * 两级缓存读取 + DB 回源。
-     * <p>
-     * 流程：L1 → L2 → DB（loader）。利用 Caffeine {@code get()} 将 L1 检查和 L2 回填合并为原子操作。
-     * L2 命中则回填 L1 并返回；L2 也未命中时调用 loader，结果同时写入 L1 和 L2。
-     *
-     * @param key        缓存 key
-     * @param type       目标类型
-     * @param ttlMinutes L2 缓存 TTL（分钟），会添加随机抖动
-     * @param loader     DB 回源加载函数
-     * @return 加载结果
-     */
     public <T> T getOrLoad(String key, Class<T> type, long ttlMinutes, Supplier<T> loader) {
-        String json = localCache.get(key, k -> {
-            String redisValue = stringRedisTemplate.opsForValue().get(k);
-            if (redisValue == null) {
-                incrementCounter(l2MissCounter);
-                return null;
-            }
-            incrementCounter(l2HitCounter);
-            return redisValue;
-        });
-
-        if (json != null) {
-            incrementCounter(l1HitCounter);
-            if (NULL_PLACEHOLDER.equals(json)) {
-                return null;
-            }
-            return deserialize(json, key, type);
-        }
-
-        incrementCounter(l1MissCounter);
-        T result = timedLoad(loader);
-        writeBoth(key, result, ttlMinutes);
-        return result;
+        return getOrLoadInternal(key, json -> deserialize(json, key, type), ttlMinutes, loader);
     }
 
-    /**
-     * 两级缓存读取 + DB 回源（支持泛型）。
-     *
-     * @param key        缓存 key
-     * @param typeRef    泛型类型引用
-     * @param ttlMinutes L2 缓存 TTL（分钟），会添加随机抖动
-     * @param loader     DB 回源加载函数
-     * @return 加载结果
-     */
     public <T> T getOrLoad(String key, TypeReference<T> typeRef, long ttlMinutes, Supplier<T> loader) {
-        String json = localCache.get(key, k -> {
-            String redisValue = stringRedisTemplate.opsForValue().get(k);
-            if (redisValue == null) {
-                incrementCounter(l2MissCounter);
-                return null;
-            }
-            incrementCounter(l2HitCounter);
-            return redisValue;
-        });
+        return getOrLoadInternal(key, json -> deserialize(json, key, typeRef), ttlMinutes, loader);
+    }
+
+    private <T> T getOrLoadInternal(String key, Function<String, T> deserializer,
+                                    long ttlMinutes, Supplier<T> loader) {
+        String json = getCachedJson(key);
 
         if (json != null) {
-            incrementCounter(l1HitCounter);
-            if (NULL_PLACEHOLDER.equals(json)) {
-                return null;
-            }
-            return deserialize(json, key, typeRef);
+            return NULL_PLACEHOLDER.equals(json) ? null : deserializer.apply(json);
         }
 
-        incrementCounter(l1MissCounter);
         T result = timedLoad(loader);
         writeBoth(key, result, ttlMinutes);
         return result;
@@ -510,19 +425,31 @@ public class RedisUtils {
     }
 
     /**
-     * 按模式删除两级缓存。L1 使用正则匹配，L2 使用 Redis KEYS 命令。
-     * <p>
-     * <b>注意</b>：Redis KEYS 命令在大数据量下有性能风险，生产环境请谨慎使用。
+     * 按模式删除两级缓存。L1 使用正则匹配，L2 使用 SCAN 迭代（避免 KEYS 阻塞 Redis）。
      *
      * @param pattern Redis key 模式（支持 * 通配符）
      */
+    @SuppressWarnings("unchecked")
     public void deleteByPattern(String pattern) {
         String regex = pattern.replace("*", ".*");
         localCache.asMap().keySet().removeIf(k -> k.matches(regex));
 
-        var keys = stringRedisTemplate.keys(pattern);
-        if (keys != null && !keys.isEmpty()) {
-            stringRedisTemplate.delete(keys);
+        ScanOptions options = ScanOptions.scanOptions().match(pattern).count(100).build();
+        var cursor = stringRedisTemplate.scan(options);
+        try {
+            var keys = new java.util.ArrayList<String>();
+            while (cursor.hasNext()) {
+                keys.add(cursor.next());
+                if (keys.size() >= 100) {
+                    stringRedisTemplate.delete(keys);
+                    keys.clear();
+                }
+            }
+            if (!keys.isEmpty()) {
+                stringRedisTemplate.delete(keys);
+            }
+        } finally {
+            cursor.close();
         }
     }
 
@@ -568,6 +495,35 @@ public class RedisUtils {
     // ======================== 内部方法 ========================
 
     /**
+     * L1 → L2 查找并更新指标。
+     * <p>
+     * 利用 Caffeine 的 {@code get(key, mappingFunction)} 实现原子的 compute-if-absent。
+     * 注意：Caffeine 不允许 mapping 函数返回 null，L2 未命中时使用哨兵值代替，
+     * 由调用方将哨兵视为 null。
+     *
+     * @return 缓存的原始 JSON 字符串，不存在时返回 {@code null}
+     */
+    private String getCachedJson(String key) {
+        String json = localCache.get(key, k -> {
+            String redisValue = stringRedisTemplate.opsForValue().get(k);
+            if (redisValue == null) {
+                incrementCounter(l2MissCounter);
+                return CACHE_MISS_SENTINEL;
+            }
+            incrementCounter(l2HitCounter);
+            return redisValue;
+        });
+
+        if (CACHE_MISS_SENTINEL.equals(json)) {
+            incrementCounter(l1MissCounter);
+            return null;
+        }
+
+        incrementCounter(l1HitCounter);
+        return json;
+    }
+
+    /**
      * 同时写入 L1 和 L2 缓存。
      * <p>
      * L2 TTL 会添加随机抖动防雪崩；null 值写入 {@link #NULL_PLACEHOLDER} 防穿透。
@@ -591,30 +547,29 @@ public class RedisUtils {
      */
     private boolean tryHotLock(String hotKey) {
         Boolean result = stringRedisTemplate.opsForValue()
-                .setIfAbsent(LOCK_PREFIX + hotKey, "1", 10, TimeUnit.SECONDS);
+                .setIfAbsent(LOCK_PREFIX + hotKey, instanceId, 10, TimeUnit.SECONDS);
         return Boolean.TRUE.equals(result);
     }
 
     private void unlockHot(String hotKey) {
-        stringRedisTemplate.delete(LOCK_PREFIX + hotKey);
+        stringRedisTemplate.execute(UNLOCK_SCRIPT, List.of(LOCK_PREFIX + hotKey), instanceId);
     }
 
     @SuppressWarnings("unchecked")
     private <T> HotCacheWrapper<T> deserializeHot(String json, String key, Class<T> type) {
-        try {
-            return objectMapper.readValue(json,
-                    objectMapper.getTypeFactory().constructParametricType(HotCacheWrapper.class, type));
-        } catch (Exception e) {
-            log.warn("热点缓存反序列化失败, key={}", key, e);
-            localCache.invalidate(key);
-            return null;
-        }
+        return readHotValue(key,
+                () -> objectMapper.readValue(json,
+                        objectMapper.getTypeFactory().constructParametricType(HotCacheWrapper.class, type)));
     }
 
     private <T> HotCacheWrapper<T> deserializeHotRef(String json, String key) {
+        return readHotValue(key,
+                () -> objectMapper.readValue(json, new TypeReference<HotCacheWrapper<T>>() {}));
+    }
+
+    private <T> HotCacheWrapper<T> readHotValue(String key, Callable<HotCacheWrapper<T>> reader) {
         try {
-            return objectMapper.readValue(json,
-                    new TypeReference<HotCacheWrapper<T>>() {});
+            return reader.call();
         } catch (Exception e) {
             log.warn("热点缓存反序列化失败, key={}", key, e);
             localCache.invalidate(key);
@@ -622,21 +577,10 @@ public class RedisUtils {
         }
     }
 
-    private <T> T deserializeL1(String json, String key, Class<T> type) {
-        if (NULL_PLACEHOLDER.equals(json)) {
-            return null;
-        }
-        return deserialize(json, key, type);
-    }
-
-    private <T> T deserializeL1(String json, String key, TypeReference<T> typeRef) {
-        if (NULL_PLACEHOLDER.equals(json)) {
-            return null;
-        }
-        return deserialize(json, key, typeRef);
-    }
-
     private <T> T deserialize(String json, String key, Class<T> type) {
+        if (NULL_PLACEHOLDER.equals(json)) {
+            return null;
+        }
         try {
             return objectMapper.readValue(json, type);
         } catch (JsonProcessingException e) {
@@ -648,6 +592,9 @@ public class RedisUtils {
     }
 
     private <T> T deserialize(String json, String key, TypeReference<T> typeRef) {
+        if (NULL_PLACEHOLDER.equals(json)) {
+            return null;
+        }
         try {
             return objectMapper.readValue(json, typeRef);
         } catch (JsonProcessingException e) {
@@ -703,15 +650,14 @@ public class RedisUtils {
      * 配合分布式锁实现热点数据的无阻塞刷新。
      */
     @Getter
+    @Setter
     @NoArgsConstructor
     @AllArgsConstructor
     public static class HotCacheWrapper<T> {
-        @JsonProperty("data")
         private T data;
-
-        @JsonProperty("expireAt")
         private long expireAt;
 
+        @JsonIgnore
         public boolean isLogicallyExpired() {
             return System.currentTimeMillis() > expireAt;
         }

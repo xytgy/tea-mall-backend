@@ -3,9 +3,9 @@ package com.xytgy.teamallbackend.module.flashsale.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.xytgy.teamallbackend.common.ResultCode;
-import com.xytgy.teamallbackend.config.mq.FlashSaleCacheManager;
-import com.xytgy.teamallbackend.config.mq.MqConstants;
-import com.xytgy.teamallbackend.config.mq.MqProducer;
+import com.xytgy.teamallbackend.mq.config.FlashSaleCacheManager;
+import com.xytgy.teamallbackend.mq.constant.MqConstants;
+import com.xytgy.teamallbackend.mq.producer.MqProducer;
 import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.module.flashsale.entity.FlashSale;
 import com.xytgy.teamallbackend.module.flashsale.entity.FlashSaleAuditLog;
@@ -13,19 +13,19 @@ import com.xytgy.teamallbackend.module.flashsale.entity.FlashSaleCompensation;
 import com.xytgy.teamallbackend.module.flashsale.entity.FlashSaleFailedOrder;
 import com.xytgy.teamallbackend.module.flashsale.entity.FlashSaleProduct;
 import com.xytgy.teamallbackend.module.flashsale.entity.FlashSaleWhitelist;
-import com.xytgy.teamallbackend.module.flashsale.repository.FlashSaleAuditLogMapper;
-import com.xytgy.teamallbackend.module.flashsale.repository.FlashSaleCompensationMapper;
-import com.xytgy.teamallbackend.module.flashsale.repository.FlashSaleFailedOrderMapper;
-import com.xytgy.teamallbackend.module.flashsale.repository.FlashSaleMapper;
-import com.xytgy.teamallbackend.module.flashsale.repository.FlashSaleProductMapper;
-import com.xytgy.teamallbackend.module.flashsale.repository.FlashSaleWhitelistMapper;
+import com.xytgy.teamallbackend.module.flashsale.mapper.FlashSaleAuditLogMapper;
+import com.xytgy.teamallbackend.module.flashsale.mapper.FlashSaleCompensationMapper;
+import com.xytgy.teamallbackend.module.flashsale.mapper.FlashSaleFailedOrderMapper;
+import com.xytgy.teamallbackend.module.flashsale.mapper.FlashSaleMapper;
+import com.xytgy.teamallbackend.module.flashsale.mapper.FlashSaleProductMapper;
+import com.xytgy.teamallbackend.module.flashsale.mapper.FlashSaleWhitelistMapper;
 import com.xytgy.teamallbackend.module.flashsale.service.FlashSaleService.FlashSaleBuyResult;
 import com.xytgy.teamallbackend.module.flashsale.vo.FlashSaleProductVO;
 import com.xytgy.teamallbackend.module.flashsale.vo.FlashSaleVO;
 import com.xytgy.teamallbackend.module.order.entity.Orders;
-import com.xytgy.teamallbackend.module.order.repository.OrdersMapper;
+import com.xytgy.teamallbackend.module.order.mapper.OrdersMapper;
 import com.xytgy.teamallbackend.module.product.entity.Product;
-import com.xytgy.teamallbackend.module.product.repository.ProductMapper;
+import com.xytgy.teamallbackend.module.product.mapper.ProductMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -60,6 +60,7 @@ public class FlashSaleAdminService {
 
     private static final String FLASH_STOCK_PREFIX = "{flash:";
     private static final String FLASH_PENDING_PREFIX = "flash:pending:";
+    private static final String FIELD_MESSAGE = "message";
 
     public List<FlashSaleVO> listActiveSales() {
         LocalDateTime now = LocalDateTime.now();
@@ -97,10 +98,10 @@ public class FlashSaleAdminService {
                 result.put("orderId", order.getId());
                 result.put("orderNo", order.getOrderNo());
                 result.put("status", order.getStatus());
-                result.put("message", getOrderStatusMessage(order.getStatus()));
+                result.put(FIELD_MESSAGE, getOrderStatusMessage(order.getStatus()));
                 return result;
             }
-            result.put("message", "订单不存在");
+            result.put(FIELD_MESSAGE, "订单不存在");
             return result;
         }
 
@@ -111,13 +112,13 @@ public class FlashSaleAdminService {
                 if (pendingOrderId != null) {
                     result.put("orderId", Long.parseLong(pendingOrderId));
                     result.put("status", "PENDING");
-                    result.put("message", "订单处理中");
+                    result.put(FIELD_MESSAGE, "订单处理中");
                     return result;
                 }
             }
         }
 
-        result.put("message", "暂无抢购记录");
+        result.put(FIELD_MESSAGE, "暂无抢购记录");
         return result;
     }
 
@@ -285,12 +286,17 @@ public class FlashSaleAdminService {
             throw new ServiceException(ResultCode.NOT_FOUND, "活动不存在");
         }
 
+        // 批量查询已存在的白名单用户（1次SQL，替代循环N次selectCount）
+        Set<Long> existingUserIds = flashSaleWhitelistMapper.selectList(
+                new LambdaQueryWrapper<FlashSaleWhitelist>()
+                        .eq(FlashSaleWhitelist::getFlashSaleId, flashSaleId)
+                        .in(FlashSaleWhitelist::getUserId, userIds))
+                .stream()
+                .map(FlashSaleWhitelist::getUserId)
+                .collect(Collectors.toSet());
+
         for (Long uid : userIds) {
-            long exists = flashSaleWhitelistMapper.selectCount(
-                    new LambdaQueryWrapper<FlashSaleWhitelist>()
-                            .eq(FlashSaleWhitelist::getFlashSaleId, flashSaleId)
-                            .eq(FlashSaleWhitelist::getUserId, uid));
-            if (exists == 0) {
+            if (!existingUserIds.contains(uid)) {
                 FlashSaleWhitelist wl = new FlashSaleWhitelist();
                 wl.setFlashSaleId(flashSaleId);
                 wl.setUserId(uid);

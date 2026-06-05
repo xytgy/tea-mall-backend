@@ -7,7 +7,7 @@ import com.xytgy.teamallbackend.common.ResultCode;
 import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.module.support.dto.SupportCreateRequest;
 import com.xytgy.teamallbackend.module.support.entity.SupportTicket;
-import com.xytgy.teamallbackend.module.support.repository.SupportTicketMapper;
+import com.xytgy.teamallbackend.module.support.mapper.SupportTicketMapper;
 import com.xytgy.teamallbackend.module.support.service.SupportService;
 import com.xytgy.teamallbackend.module.support.vo.SupportTicketVO;
 import org.springframework.stereotype.Service;
@@ -17,12 +17,12 @@ import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 @Service
 public class SupportServiceImpl extends ServiceImpl<SupportTicketMapper, SupportTicket> implements SupportService {
 
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final String CATEGORY = "category";
 
     @Override
     public void createSupport(Long userId, SupportCreateRequest request) {
@@ -46,7 +46,7 @@ public class SupportServiceImpl extends ServiceImpl<SupportTicketMapper, Support
         queryWrapper.eq("user_id", userId);
         
         if (StringUtils.hasText(category)) {
-            queryWrapper.eq("category", category);
+            queryWrapper.eq(CATEGORY, category);
         }
         queryWrapper.orderByDesc("create_time");
 
@@ -76,9 +76,9 @@ public class SupportServiceImpl extends ServiceImpl<SupportTicketMapper, Support
     @Override
     public Map<String, Integer> getSupportStats(Long userId) {
         QueryWrapper<SupportTicket> queryWrapper = new QueryWrapper<>();
-        queryWrapper.select("category", "COUNT(*) as count")
+        queryWrapper.select(CATEGORY, "COUNT(*) as count")
                 .eq("user_id", userId)
-                .groupBy("category");
+                .groupBy(CATEGORY);
                 
         List<Map<String, Object>> resultMaps = this.listMaps(queryWrapper);
         
@@ -90,7 +90,7 @@ public class SupportServiceImpl extends ServiceImpl<SupportTicketMapper, Support
         
         int total = 0;
         for (Map<String, Object> map : resultMaps) {
-            String category = (String) map.get("category");
+            String category = (String) map.get(CATEGORY);
             Integer count = ((Number) map.get("count")).intValue();
             total += count;
             

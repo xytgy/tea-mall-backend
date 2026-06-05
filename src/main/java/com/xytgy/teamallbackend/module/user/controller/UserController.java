@@ -16,7 +16,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import com.xytgy.teamallbackend.module.user.vo.UserOverviewStatsVO;
 
@@ -31,7 +30,8 @@ public class UserController extends BaseController {
 
     @PostMapping("/refresh/token")
     @Operation(summary = "刷新 Token 接口")
-    public Result<LoginResponse> refreshToken(@RequestParam("refreshToken") String refreshToken) {
+    public Result<LoginResponse> refreshToken(@RequestBody Map<String, String> body) {
+        String refreshToken = body.get("refreshToken");
         LoginResponse data = userService.refreshToken(refreshToken);
         return Result.success("刷新成功", data);
     }

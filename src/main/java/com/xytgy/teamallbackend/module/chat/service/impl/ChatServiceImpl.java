@@ -6,8 +6,8 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.baomidou.mybatisplus.extension.toolkit.ChainWrappers;
 import com.xytgy.teamallbackend.module.chat.entity.ChatMessage;
 import com.xytgy.teamallbackend.module.chat.entity.ChatSession;
-import com.xytgy.teamallbackend.module.chat.repository.ChatMessageMapper;
-import com.xytgy.teamallbackend.module.chat.repository.ChatSessionMapper;
+import com.xytgy.teamallbackend.module.chat.mapper.ChatMessageMapper;
+import com.xytgy.teamallbackend.module.chat.mapper.ChatSessionMapper;
 import com.xytgy.teamallbackend.module.chat.service.ChatService;
 import com.xytgy.teamallbackend.module.chat.vo.ChatMessageVO;
 import com.xytgy.teamallbackend.module.chat.vo.ChatSessionVO;
@@ -15,7 +15,7 @@ import com.xytgy.teamallbackend.common.UserRole;
 import com.xytgy.teamallbackend.config.datasource.ReadOnly;
 import com.xytgy.teamallbackend.module.user.entity.User;
 import com.xytgy.teamallbackend.module.shop.service.ShopService;
-import com.xytgy.teamallbackend.module.user.repository.UserMapper;
+import com.xytgy.teamallbackend.module.user.mapper.UserMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -92,6 +92,16 @@ public class ChatServiceImpl extends ServiceImpl<ChatMessageMapper, ChatMessage>
         Collections.reverse(voList);
         return voList;
     }
+    private String resolveBuyerName(User buyer) {
+        if (buyer == null) {
+            return "未知用户";
+        }
+        if (buyer.getNickname() != null) {
+            return buyer.getNickname();
+        }
+        return buyer.getUserAccount();
+    }
+
     @Override
     public void markAsRead(Long buyerId, Long merchantId, Long readerId) {
         ChatSession session = getOrCreateSession(buyerId, merchantId);
@@ -123,7 +133,9 @@ public class ChatServiceImpl extends ServiceImpl<ChatMessageMapper, ChatMessage>
                 .collect(Collectors.toMap(User::getId, Function.identity()));
 
         Set<Long> sessionIds = sessions.stream().map(ChatSession::getId).collect(Collectors.toSet());
+        // 只查 sessionId 列（覆盖索引），替代查全部列再 Java 端 groupingBy
         Map<Long, Long> unreadMap = this.lambdaQuery()
+                .select(ChatMessage::getSessionId)
                 .in(ChatMessage::getSessionId, sessionIds)
                 .eq(ChatMessage::getReceiverId, merchantId)
                 .eq(ChatMessage::getIsRead, 0)
@@ -135,7 +147,7 @@ public class ChatServiceImpl extends ServiceImpl<ChatMessageMapper, ChatMessage>
             User buyer = buyerMap.get(s.getBuyerId());
             return ChatSessionVO.builder()
                     .buyerId(s.getBuyerId())
-                    .buyerName(buyer != null ? (buyer.getNickname() != null ? buyer.getNickname() : buyer.getUserAccount()) : "未知用户")
+                    .buyerName(resolveBuyerName(buyer))
                     .buyerAvatar(buyer != null ? buyer.getAvatar() : null)
                     .lastMessage(s.getLastMessage())
                     .lastTime(s.getLastTime() != null ? s.getLastTime().format(TIME_FORMATTER) : null)

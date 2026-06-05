@@ -5,7 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.xytgy.teamallbackend.common.PageResult;
 import com.xytgy.teamallbackend.module.teacircle.entity.TeaTopic;
-import com.xytgy.teamallbackend.module.teacircle.repository.TeaTopicMapper;
+import com.xytgy.teamallbackend.module.teacircle.mapper.TeaTopicMapper;
 import com.xytgy.teamallbackend.module.teacircle.service.TeaTopicService;
 import com.xytgy.teamallbackend.module.teacircle.vo.TeaTopicVO;
 import com.xytgy.teamallbackend.utils.RedisUtils;
@@ -30,7 +30,7 @@ public class TeaTopicServiceImpl extends ServiceImpl<TeaTopicMapper, TeaTopic> i
     @SuppressWarnings("unchecked")
     public PageResult<TeaTopicVO> getTopics(int page, int pageSize) {
         String cacheKey = TOPIC_LIST_CACHE_KEY + page + ":" + pageSize;
-        return (PageResult<TeaTopicVO>) redisUtils.getOrLoad(cacheKey, PageResult.class, 15, () -> {
+        return redisUtils.getOrLoad(cacheKey, PageResult.class, 15, () -> {
             Page<TeaTopic> p = new Page<>(page, pageSize);
             this.page(p, new LambdaQueryWrapper<TeaTopic>()
                     .orderByDesc(TeaTopic::getIsHot)

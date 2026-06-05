@@ -1,5 +1,6 @@
 package com.xytgy.teamallbackend.utils;
 
+import com.xytgy.teamallbackend.cache.BloomFilterManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

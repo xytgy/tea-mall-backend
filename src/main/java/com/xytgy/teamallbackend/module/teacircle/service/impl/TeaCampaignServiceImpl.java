@@ -3,7 +3,7 @@ package com.xytgy.teamallbackend.module.teacircle.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.xytgy.teamallbackend.module.teacircle.entity.TeaCampaign;
-import com.xytgy.teamallbackend.module.teacircle.repository.TeaCampaignMapper;
+import com.xytgy.teamallbackend.module.teacircle.mapper.TeaCampaignMapper;
 import com.xytgy.teamallbackend.module.teacircle.service.TeaCampaignService;
 import com.xytgy.teamallbackend.module.teacircle.vo.TeaCampaignVO;
 import org.springframework.stereotype.Service;

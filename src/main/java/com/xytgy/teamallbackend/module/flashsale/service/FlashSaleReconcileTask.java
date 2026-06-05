@@ -1,13 +1,13 @@
 package com.xytgy.teamallbackend.module.flashsale.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.xytgy.teamallbackend.config.mq.FlashSaleCacheManager;
+import com.xytgy.teamallbackend.mq.config.FlashSaleCacheManager;
 import com.xytgy.teamallbackend.module.flashsale.entity.FlashSale;
 import com.xytgy.teamallbackend.module.flashsale.entity.FlashSaleProduct;
-import com.xytgy.teamallbackend.module.flashsale.repository.FlashSaleMapper;
-import com.xytgy.teamallbackend.module.flashsale.repository.FlashSaleProductMapper;
+import com.xytgy.teamallbackend.module.flashsale.mapper.FlashSaleMapper;
+import com.xytgy.teamallbackend.module.flashsale.mapper.FlashSaleProductMapper;
 import com.xytgy.teamallbackend.module.product.entity.Product;
-import com.xytgy.teamallbackend.module.product.repository.ProductMapper;
+import com.xytgy.teamallbackend.module.product.mapper.ProductMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -16,7 +16,9 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 /**
  * 秒杀对账 & 自动清理定时任务。
@@ -50,20 +52,25 @@ public class FlashSaleReconcileTask {
      */
     @Scheduled(fixedRate = 60000)
     public void reconcile() {
-        // P1#6: 只查已结束的活动（status=0），不再查进行中的，避免每 60 秒白查一遍
         List<FlashSale> sales = flashSaleMapper.selectList(
                 new LambdaQueryWrapper<FlashSale>()
                         .eq(FlashSale::getStatus, 0));
 
         int anomalyCount = 0;
         for (FlashSale sale : sales) {
-
             List<FlashSaleProduct> products = flashSaleProductMapper.selectList(
                     new LambdaQueryWrapper<FlashSaleProduct>()
                             .eq(FlashSaleProduct::getFlashSaleId, sale.getId()));
+            if (products.isEmpty()) continue;
+
+            // 批量查询商品信息（1次SQL，替代循环N次selectById）
+            List<Long> productIds = products.stream()
+                    .map(FlashSaleProduct::getProductId).toList();
+            Map<Long, Product> productMap = productMapper.selectBatchIds(productIds)
+                    .stream().collect(Collectors.toMap(Product::getId, p -> p));
 
             for (FlashSaleProduct fsp : products) {
-                anomalyCount += checkStockConsistency(fsp);
+                anomalyCount += checkStockConsistency(fsp, productMap.get(fsp.getProductId()));
             }
         }
 
@@ -74,7 +81,11 @@ public class FlashSaleReconcileTask {
      * 检查单个商品的 Redis 与 MySQL 库存一致性，不一致时以 MySQL 为准回补 Redis
      * @return 异常计数（0 或 1）
      */
-    private int checkStockConsistency(FlashSaleProduct fsp) {
+    private int checkStockConsistency(FlashSaleProduct fsp, Product product) {
+        if (product == null) {
+            return 0;
+        }
+
         String stockKey = STOCK_KEY_PREFIX + fsp.getProductId() + STOCK_KEY_SUFFIX;
         String redisStockStr = stringRedisTemplate.opsForValue().get(stockKey);
         if (redisStockStr == null) {
@@ -82,11 +93,6 @@ public class FlashSaleReconcileTask {
         }
 
         int redisStock = Integer.parseInt(redisStockStr);
-        Product product = productMapper.selectById(fsp.getProductId());
-        if (product == null) {
-            return 0;
-        }
-
         int dbStock = product.getStock();
         if (redisStock == dbStock) {
             return 0;

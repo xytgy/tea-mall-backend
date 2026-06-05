@@ -17,8 +17,8 @@ import com.alipay.api.response.AlipayTradeRefundResponse;
 import com.alipay.api.internal.util.AlipaySignature;
 import com.xytgy.teamallbackend.common.Result;
 import com.xytgy.teamallbackend.common.ResultCode;
-import com.xytgy.teamallbackend.config.mq.MqConstants;
-import com.xytgy.teamallbackend.config.mq.MqProducer;
+import com.xytgy.teamallbackend.mq.constant.MqConstants;
+import com.xytgy.teamallbackend.mq.producer.MqProducer;
 import com.xytgy.teamallbackend.security.SecurityUtils;
 import com.xytgy.teamallbackend.config.AlipayConfig;
 import com.xytgy.teamallbackend.exception.ServiceException;
@@ -26,7 +26,7 @@ import com.xytgy.teamallbackend.module.order.entity.Orders;
 import com.xytgy.teamallbackend.module.order.entity.PaymentRecord;
 import com.xytgy.teamallbackend.module.order.service.OrdersService;
 import com.xytgy.teamallbackend.module.order.service.PaymentRecordService;
-import com.xytgy.teamallbackend.utils.DistributedLock;
+import com.xytgy.teamallbackend.lock.DistributedLock;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
@@ -45,6 +45,9 @@ import java.util.HashMap;
 @Tag(name = "支付宝支付接口")
 @ConditionalOnProperty(prefix = "alipay", name = "enabled", havingValue = "true")
 public class PaymentController {
+
+    private static final String STATUS_SUCCESS = "success";
+    private static final String STATUS_FAILURE = "failure";
 
     private final AlipayClient alipayClient;
 
@@ -79,14 +82,14 @@ public class PaymentController {
 
         // 创建支付流水
         String outTradeNo = "pay_" + order.getOrderNo() + "_" + System.currentTimeMillis();
-        PaymentRecord record = new PaymentRecord();
-        record.setOrderId(orderId);
-        record.setOutTradeNo(outTradeNo);
-        record.setPayChannel("ALIPAY_PC");
-        record.setTotalAmount(order.getTotalAmount());
-        record.setStatus(PaymentRecord.STATUS_PAYING);
-        record.setCreateTime(LocalDateTime.now());
-        paymentRecordService.save(record);
+        PaymentRecord paymentRecord = new PaymentRecord();
+        paymentRecord.setOrderId(orderId);
+        paymentRecord.setOutTradeNo(outTradeNo);
+        paymentRecord.setPayChannel("ALIPAY_PC");
+        paymentRecord.setTotalAmount(order.getTotalAmount());
+        paymentRecord.setStatus(PaymentRecord.STATUS_PAYING);
+        paymentRecord.setCreateTime(LocalDateTime.now());
+        paymentRecordService.save(paymentRecord);
 
         // 调用支付宝接口
         AlipayTradePagePayRequest request = new AlipayTradePagePayRequest();
@@ -113,16 +116,16 @@ public class PaymentController {
     }
 
     // S3776: 提取共享补单逻辑，降低 notifyCallback 和 queryPayResult 的复杂度
-    private void confirmPayment(PaymentRecord record, String tradeNo) {
-        record.setStatus(PaymentRecord.STATUS_PAID);
-        record.setTradeNo(tradeNo);
-        record.setPayTime(LocalDateTime.now());
-        paymentRecordService.updateById(record);
+    private void confirmPayment(PaymentRecord paymentRecord, String tradeNo) {
+        paymentRecord.setStatus(PaymentRecord.STATUS_PAID);
+        paymentRecord.setTradeNo(tradeNo);
+        paymentRecord.setPayTime(LocalDateTime.now());
+        paymentRecordService.updateById(paymentRecord);
 
-        Orders order = ordersService.getById(record.getOrderId());
+        Orders order = ordersService.getById(paymentRecord.getOrderId());
         if (order != null && order.getStatus() == Orders.STATUS_PENDING_PAYMENT) {
             order.setStatus(Orders.STATUS_PAID);
-            order.setPaymentId(record.getId());
+            order.setPaymentId(paymentRecord.getId());
             order.setPayTime(LocalDateTime.now());
             ordersService.updateById(order);
 
@@ -130,7 +133,7 @@ public class PaymentController {
             Map<String, Object> notifyMsg = new HashMap<>();
             notifyMsg.put("orderId", order.getId());
             notifyMsg.put("userId", order.getUserId());
-            notifyMsg.put("paymentId", record.getId());
+            notifyMsg.put("paymentId", paymentRecord.getId());
             mqProducer.send(MqConstants.TOPIC_PAYMENT_NOTIFY, MqConstants.TAG_PAY_SUCCESS,
                     String.valueOf(order.getId()), notifyMsg);
         }
@@ -150,43 +153,43 @@ public class PaymentController {
     public String notifyCallback(@RequestParam Map<String, String> params) {
         try {
             if (!verifyNotifyParams(params)) {
-                return "failure";
+                return STATUS_FAILURE;
             }
 
             String outTradeNo = params.get("out_trade_no");
             String tradeNo = params.get("trade_no");
             String tradeStatus = params.get("trade_status");
 
-            PaymentRecord record = paymentRecordService.getByOutTradeNo(outTradeNo);
-            if (record == null) {
-                return "failure";
+            PaymentRecord paymentRecord = paymentRecordService.getByOutTradeNo(outTradeNo);
+            if (paymentRecord == null) {
+                return STATUS_FAILURE;
             }
-            if (new BigDecimal(params.get("total_amount")).compareTo(record.getTotalAmount()) != 0) {
-                return "failure";
+            if (new BigDecimal(params.get("total_amount")).compareTo(paymentRecord.getTotalAmount()) != 0) {
+                return STATUS_FAILURE;
             }
 
             if ("TRADE_SUCCESS".equals(tradeStatus) || "TRADE_FINISHED".equals(tradeStatus)) {
-                if (PaymentRecord.STATUS_PAID.equals(record.getStatus())) {
-                    return "success";
+                if (PaymentRecord.STATUS_PAID.equals(paymentRecord.getStatus())) {
+                    return STATUS_SUCCESS;
                 }
                 String lockKey = "payment:notify:" + outTradeNo;
                 if (!distributedLock.tryLock(lockKey)) {
-                    return "success";
+                    return STATUS_SUCCESS;
                 }
                 try {
-                    record = paymentRecordService.getByOutTradeNo(outTradeNo);
-                    if (PaymentRecord.STATUS_PAID.equals(record.getStatus())) {
-                        return "success";
+                    paymentRecord = paymentRecordService.getByOutTradeNo(outTradeNo);
+                    if (PaymentRecord.STATUS_PAID.equals(paymentRecord.getStatus())) {
+                        return STATUS_SUCCESS;
                     }
-                    confirmPayment(record, tradeNo);
+                    confirmPayment(paymentRecord, tradeNo);
                 } finally {
                     distributedLock.unlock(lockKey);
                 }
             }
-            return "success";
+            return STATUS_SUCCESS;
         } catch (AlipayApiException e) {
             log.error("支付宝回调处理异常", e);
-            return "failure";
+            return STATUS_FAILURE;
         }
     }
 
@@ -204,14 +207,14 @@ public class PaymentController {
             return Result.success("支付状态", PaymentRecord.STATUS_PAID);
         }
 
-        PaymentRecord record = paymentRecordService.getLastPayingRecord(orderId);
-        if (record == null) {
+        PaymentRecord paymentRecord = paymentRecordService.getLastPayingRecord(orderId);
+        if (paymentRecord == null) {
             return Result.success("支付状态", "NOT_PAYING");
         }
 
         try {
-            AlipayTradeQueryResponse response = queryTradeStatus(record.getOutTradeNo());
-            return Result.success("支付状态", resolveTradeStatus(response, record));
+            AlipayTradeQueryResponse response = queryTradeStatus(paymentRecord.getOutTradeNo());
+            return Result.success("支付状态", resolveTradeStatus(response, paymentRecord));
         } catch (AlipayApiException e) {
             log.error("查询支付宝支付状态异常", e);
         }
@@ -226,22 +229,22 @@ public class PaymentController {
         return alipayClient.execute(request);
     }
 
-    private String resolveTradeStatus(AlipayTradeQueryResponse response, PaymentRecord record) {
+    private String resolveTradeStatus(AlipayTradeQueryResponse response, PaymentRecord paymentRecord) {
         if (!response.isSuccess()) {
             return "UNKNOWN";
         }
         String status = response.getTradeStatus();
         if ("TRADE_SUCCESS".equals(status) || "TRADE_FINISHED".equals(status)) {
-            String lockKey = "payment:notify:" + record.getOutTradeNo();
+            String lockKey = "payment:notify:" + paymentRecord.getOutTradeNo();
             if (!distributedLock.tryLock(lockKey)) {
                 return PaymentRecord.STATUS_PAID;
             }
             try {
-                record = paymentRecordService.getByOutTradeNo(record.getOutTradeNo());
-                if (PaymentRecord.STATUS_PAID.equals(record.getStatus())) {
+                paymentRecord = paymentRecordService.getByOutTradeNo(paymentRecord.getOutTradeNo());
+                if (PaymentRecord.STATUS_PAID.equals(paymentRecord.getStatus())) {
                     return PaymentRecord.STATUS_PAID;
                 }
-                confirmPayment(record, response.getTradeNo());
+                confirmPayment(paymentRecord, response.getTradeNo());
             } finally {
                 distributedLock.unlock(lockKey);
             }
@@ -266,20 +269,20 @@ public class PaymentController {
             throw new ServiceException(ResultCode.BAD_REQUEST, "只能关闭待支付订单");
         }
 
-        PaymentRecord record = paymentRecordService.getLastPayingRecord(orderId);
-        if (record != null) {
+        PaymentRecord paymentRecord = paymentRecordService.getLastPayingRecord(orderId);
+        if (paymentRecord != null) {
             AlipayTradeCloseRequest request = new AlipayTradeCloseRequest();
             AlipayTradeCloseModel model = new AlipayTradeCloseModel();
-            model.setOutTradeNo(record.getOutTradeNo());
+            model.setOutTradeNo(paymentRecord.getOutTradeNo());
             request.setBizModel(model);
             try {
                 AlipayTradeCloseResponse response = alipayClient.execute(request);
                 if (response.isSuccess()) {
-                    record.setStatus(PaymentRecord.STATUS_CLOSED);
-                    paymentRecordService.updateById(record);
+                    paymentRecord.setStatus(PaymentRecord.STATUS_CLOSED);
+                    paymentRecordService.updateById(paymentRecord);
                 }
             } catch (AlipayApiException e) {
-                log.error("支付宝关单异常, outTradeNo={}", record.getOutTradeNo(), e);
+                log.error("支付宝关单异常, outTradeNo={}", paymentRecord.getOutTradeNo(), e);
             }
         }
 
@@ -302,53 +305,59 @@ public class PaymentController {
             throw new ServiceException(ResultCode.BAD_REQUEST, "订单状态不支持退款");
         }
 
-        PaymentRecord record = null;
-        if (order.getPaymentId() != null) {
-            record = paymentRecordService.getById(order.getPaymentId());
+        String lockKey = "payment:refund:" + orderId;
+        if (!distributedLock.tryLock(lockKey)) {
+            throw new ServiceException(ResultCode.BAD_REQUEST, "退款处理中，请勿重复提交");
         }
-        
-        if (record == null || !PaymentRecord.STATUS_PAID.equals(record.getStatus())) {
-            throw new ServiceException(ResultCode.BAD_REQUEST, "无有效支付记录");
-        }
-
-        BigDecimal refundAmount = amount != null ? amount : order.getTotalAmount();
-        // 防止超额退款：校验退款金额不超过订单实际支付金额
-        if (refundAmount.compareTo(order.getTotalAmount()) > 0) {
-            throw new ServiceException(ResultCode.BAD_REQUEST, "退款金额不能超过订单金额");
-        }
-        if (refundAmount.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new ServiceException(ResultCode.BAD_REQUEST, "退款金额必须大于零");
-        }
-        // 防止重复退款：检查该订单是否已有退款成功的记录
-        PaymentRecord existingRefund = paymentRecordService.lambdaQuery()
-                .eq(PaymentRecord::getOrderId, orderId)
-                .eq(PaymentRecord::getStatus, PaymentRecord.STATUS_REFUNDED)
-                .one();
-        if (existingRefund != null) {
-            throw new ServiceException(ResultCode.CONFLICT, "该订单已退款，请勿重复操作");
-        }
-        String outRequestNo = "refund_" + order.getOrderNo() + "_" + System.currentTimeMillis();
-
-        AlipayTradeRefundRequest request = new AlipayTradeRefundRequest();
-        AlipayTradeRefundModel model = new AlipayTradeRefundModel();
-        model.setOutTradeNo(record.getOutTradeNo());
-        model.setRefundAmount(refundAmount.toString());
-        model.setOutRequestNo(outRequestNo);
-        request.setBizModel(model);
-
         try {
-            AlipayTradeRefundResponse response = alipayClient.execute(request);
-            if (response.isSuccess()) {
-                order.setStatus(Orders.STATUS_REFUNDED);
-                ordersService.updateById(order);
-                record.setStatus(PaymentRecord.STATUS_REFUNDED);
-                paymentRecordService.updateById(record);
-                return Result.success(null);
-            } else {
-                throw new ServiceException(ResultCode.ERROR, "退款失败: " + response.getSubMsg());
+            PaymentRecord paymentRecord = null;
+            if (order.getPaymentId() != null) {
+                paymentRecord = paymentRecordService.getById(order.getPaymentId());
             }
-        } catch (AlipayApiException e) {
-            throw new ServiceException(ResultCode.ERROR, "支付宝接口异常: " + e.getMessage());
+
+            if (paymentRecord == null || !PaymentRecord.STATUS_PAID.equals(paymentRecord.getStatus())) {
+                throw new ServiceException(ResultCode.BAD_REQUEST, "无有效支付记录");
+            }
+
+            BigDecimal refundAmount = amount != null ? amount : order.getTotalAmount();
+            if (refundAmount.compareTo(order.getTotalAmount()) > 0) {
+                throw new ServiceException(ResultCode.BAD_REQUEST, "退款金额不能超过订单金额");
+            }
+            if (refundAmount.compareTo(BigDecimal.ZERO) <= 0) {
+                throw new ServiceException(ResultCode.BAD_REQUEST, "退款金额必须大于零");
+            }
+            PaymentRecord existingRefund = paymentRecordService.lambdaQuery()
+                    .eq(PaymentRecord::getOrderId, orderId)
+                    .eq(PaymentRecord::getStatus, PaymentRecord.STATUS_REFUNDED)
+                    .one();
+            if (existingRefund != null) {
+                throw new ServiceException(ResultCode.CONFLICT, "该订单已退款，请勿重复操作");
+            }
+            String outRequestNo = "refund_" + order.getOrderNo() + "_" + System.currentTimeMillis();
+
+            AlipayTradeRefundRequest request = new AlipayTradeRefundRequest();
+            AlipayTradeRefundModel model = new AlipayTradeRefundModel();
+            model.setOutTradeNo(paymentRecord.getOutTradeNo());
+            model.setRefundAmount(refundAmount.toString());
+            model.setOutRequestNo(outRequestNo);
+            request.setBizModel(model);
+
+            try {
+                AlipayTradeRefundResponse response = alipayClient.execute(request);
+                if (response.isSuccess()) {
+                    order.setStatus(Orders.STATUS_REFUNDED);
+                    ordersService.updateById(order);
+                    paymentRecord.setStatus(PaymentRecord.STATUS_REFUNDED);
+                    paymentRecordService.updateById(paymentRecord);
+                    return Result.success(null);
+                } else {
+                    throw new ServiceException(ResultCode.ERROR, "退款失败: " + response.getSubMsg());
+                }
+            } catch (AlipayApiException e) {
+                throw new ServiceException(ResultCode.ERROR, "支付宝接口异常: " + e.getMessage());
+            }
+        } finally {
+            distributedLock.unlock(lockKey);
         }
     }
 }

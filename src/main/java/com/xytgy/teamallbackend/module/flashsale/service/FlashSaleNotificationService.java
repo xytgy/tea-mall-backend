@@ -3,9 +3,9 @@ package com.xytgy.teamallbackend.module.flashsale.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xytgy.teamallbackend.config.websocket.ChatWebSocketHandler;
 import com.xytgy.teamallbackend.module.flashsale.entity.FlashSaleAuditLog;
-import com.xytgy.teamallbackend.module.flashsale.repository.FlashSaleAuditLogMapper;
+import com.xytgy.teamallbackend.module.flashsale.mapper.FlashSaleAuditLogMapper;
 import com.xytgy.teamallbackend.module.teacircle.entity.TeaNotification;
-import com.xytgy.teamallbackend.module.teacircle.repository.TeaNotificationMapper;
+import com.xytgy.teamallbackend.module.teacircle.mapper.TeaNotificationMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -42,14 +42,12 @@ public class FlashSaleNotificationService {
         metrics.increment("flash.notify.total");
 
         // P0 站内信（默认，必定执行）
-        boolean p0Success = sendInAppNotification(userId, flashSaleId, productId, reason);
+        boolean p0Success = sendInAppNotification(userId, flashSaleId, productId);
 
         // P1 WebSocket 推送（用户在线时）
         boolean p1Success = sendWebSocketNotification(userId, flashSaleId, productId, reason);
 
-        // P2 短信（用户绑定手机号时，预留接口）
-        // sendSmsNotification(userId, reason);
-
+        // P2 短信（预留接口）
         if (p0Success || p1Success) {
             metrics.increment("flash.notify.success");
         }
@@ -61,7 +59,7 @@ public class FlashSaleNotificationService {
      * P0 站内信：写入 tea_notification 表。
      * sourceId = flashSaleId * 10000 + productId（简单编码，用于通知列表展示时跳转）
      */
-    private boolean sendInAppNotification(Long userId, Long flashSaleId, Long productId, String reason) {
+    private boolean sendInAppNotification(Long userId, Long flashSaleId, Long productId) {
         try {
             TeaNotification notification = new TeaNotification();
             notification.setUserId(userId);
@@ -97,15 +95,5 @@ public class FlashSaleNotificationService {
         }
     }
 
-    /**
-     * P2 短信通知（预留接口）。
-     * <p>
-     * 需要接入 SMS SDK（阿里云/腾讯云），当前仅记录日志。
-     * 需要检查 user.phone 是否存在。
-     */
-    @SuppressWarnings("unused")
-    private void sendSmsNotification(Long userId, String reason) {
-        // TODO: 接入 SMS SDK 后实现
-        log.info("P2 短信通知(预留): userId={}, reason={}", userId, reason);
-    }
+
 }

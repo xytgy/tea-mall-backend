@@ -7,7 +7,7 @@ import com.xytgy.teamallbackend.module.cart.entity.Cart;
 import com.xytgy.teamallbackend.module.product.entity.Product;
 import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.module.cart.service.CartService;
-import com.xytgy.teamallbackend.module.cart.repository.CartMapper;
+import com.xytgy.teamallbackend.module.cart.mapper.CartMapper;
 import com.xytgy.teamallbackend.module.product.service.ProductService;
 import com.xytgy.teamallbackend.module.cart.vo.CartItemVO;
 import lombok.RequiredArgsConstructor;

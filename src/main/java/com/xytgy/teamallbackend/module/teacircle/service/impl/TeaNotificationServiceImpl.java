@@ -5,7 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.xytgy.teamallbackend.common.PageResult;
 import com.xytgy.teamallbackend.module.teacircle.entity.TeaNotification;
-import com.xytgy.teamallbackend.module.teacircle.repository.TeaNotificationMapper;
+import com.xytgy.teamallbackend.module.teacircle.mapper.TeaNotificationMapper;
 import com.xytgy.teamallbackend.module.teacircle.service.TeaNotificationService;
 import com.xytgy.teamallbackend.module.teacircle.vo.TeaNotificationVO;
 import com.xytgy.teamallbackend.module.user.entity.User;

@@ -7,23 +7,25 @@ import com.xytgy.teamallbackend.common.PageResult;
 import com.xytgy.teamallbackend.common.ResultCode;
 import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.module.teacircle.entity.TeaFollow;
-import com.xytgy.teamallbackend.module.teacircle.repository.TeaFollowMapper;
+import com.xytgy.teamallbackend.module.teacircle.mapper.TeaFollowMapper;
 import com.xytgy.teamallbackend.module.teacircle.service.TeaFollowService;
 import com.xytgy.teamallbackend.module.teacircle.service.TeaNotificationService;
 import com.xytgy.teamallbackend.module.teacircle.vo.SimpleUserVO;
 import com.xytgy.teamallbackend.module.teacircle.vo.UserProfileVO;
 import com.xytgy.teamallbackend.module.teacircle.entity.TeaPost;
-import com.xytgy.teamallbackend.module.teacircle.repository.TeaPostMapper;
-import com.xytgy.teamallbackend.module.teacircle.repository.TeaLikeMapper;
+import com.xytgy.teamallbackend.module.teacircle.mapper.TeaPostMapper;
+import com.xytgy.teamallbackend.module.teacircle.mapper.TeaLikeMapper;
 import com.xytgy.teamallbackend.module.teacircle.entity.TeaLike;
 import com.xytgy.teamallbackend.module.user.entity.User;
 import com.xytgy.teamallbackend.module.user.service.UserService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -113,7 +115,7 @@ public class TeaFollowServiceImpl extends ServiceImpl<TeaFollowMapper, TeaFollow
                 .followingCount((int) followingCount)
                 .followersCount((int) followersCount)
                 .likeReceivedCount((int) likeReceivedCount)
-                .isFollowing(currentUserId != null ? isFollowing(currentUserId, targetUserId) : false)
+                .isFollowing(currentUserId != null && isFollowing(currentUserId, targetUserId))
                 .build();
     }
 
@@ -124,9 +126,9 @@ public class TeaFollowServiceImpl extends ServiceImpl<TeaFollowMapper, TeaFollow
                 .eq(TeaFollow::getFollowerId, currentUserId)
                 .orderByDesc(TeaFollow::getCreateTime));
 
-        List<SimpleUserVO> records = p.getRecords().stream()
-                .map(f -> toSimpleUserVO(f.getFollowingId(), currentUserId))
-                .toList();
+        List<Long> targetUserIds = p.getRecords().stream()
+                .map(TeaFollow::getFollowingId).toList();
+        List<SimpleUserVO> records = batchBuildSimpleUserVO(targetUserIds, currentUserId);
         return new PageResult<>(records, p.getTotal(), p.getCurrent(), p.getSize());
     }
 
@@ -137,9 +139,9 @@ public class TeaFollowServiceImpl extends ServiceImpl<TeaFollowMapper, TeaFollow
                 .eq(TeaFollow::getFollowingId, currentUserId)
                 .orderByDesc(TeaFollow::getCreateTime));
 
-        List<SimpleUserVO> records = p.getRecords().stream()
-                .map(f -> toSimpleUserVO(f.getFollowerId(), currentUserId))
-                .toList();
+        List<Long> targetUserIds = p.getRecords().stream()
+                .map(TeaFollow::getFollowerId).toList();
+        List<SimpleUserVO> records = batchBuildSimpleUserVO(targetUserIds, currentUserId);
         return new PageResult<>(records, p.getTotal(), p.getCurrent(), p.getSize());
     }
 
@@ -151,17 +153,36 @@ public class TeaFollowServiceImpl extends ServiceImpl<TeaFollowMapper, TeaFollow
                 .eq(TeaFollow::getFollowingId, followingId)) > 0;
     }
 
-    private SimpleUserVO toSimpleUserVO(Long targetUserId, Long currentUserId) {
-        SimpleUserVO vo = new SimpleUserVO();
-        User u = userService.getById(targetUserId);
-        if (u != null) {
+    /**
+     * 批量构建 SimpleUserVO，将 N+1 查询优化为 2 次批量查询
+     */
+    private List<SimpleUserVO> batchBuildSimpleUserVO(List<Long> targetUserIds, Long currentUserId) {
+        if (targetUserIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        // 批量查用户信息（1次SQL）
+        Map<Long, User> userMap = userService.listByIds(targetUserIds).stream()
+                .collect(Collectors.toMap(User::getId, u -> u));
+
+        // 批量查当前用户对这些人的关注状态（1次SQL）
+        Set<Long> followingSet = this.list(new LambdaQueryWrapper<TeaFollow>()
+                        .eq(TeaFollow::getFollowerId, currentUserId)
+                        .in(TeaFollow::getFollowingId, targetUserIds))
+                .stream()
+                .map(TeaFollow::getFollowingId)
+                .collect(Collectors.toSet());
+
+        return targetUserIds.stream().map(targetId -> {
+            User u = userMap.get(targetId);
+            if (u == null) return null;
+            SimpleUserVO vo = new SimpleUserVO();
             vo.setId(u.getId());
             vo.setUserAccount(u.getUserAccount());
             vo.setNickname(u.getNickname());
             vo.setAvatar(u.getAvatar());
             vo.setBio("");
-            vo.setIsFollowing(isFollowing(currentUserId, targetUserId));
-        }
-        return vo;
+            vo.setIsFollowing(followingSet.contains(targetId));
+            return vo;
+        }).filter(java.util.Objects::nonNull).toList();
     }
 }

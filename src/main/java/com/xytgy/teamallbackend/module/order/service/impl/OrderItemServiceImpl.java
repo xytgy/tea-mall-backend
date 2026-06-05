@@ -3,7 +3,7 @@ package com.xytgy.teamallbackend.module.order.service.impl;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.xytgy.teamallbackend.module.order.entity.OrderItem;
 import com.xytgy.teamallbackend.module.order.service.OrderItemService;
-import com.xytgy.teamallbackend.module.order.repository.OrderItemMapper;
+import com.xytgy.teamallbackend.module.order.mapper.OrderItemMapper;
 import org.springframework.stereotype.Service;
 
 /**

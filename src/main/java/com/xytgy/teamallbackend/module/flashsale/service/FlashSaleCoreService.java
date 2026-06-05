@@ -2,22 +2,22 @@ package com.xytgy.teamallbackend.module.flashsale.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.xytgy.teamallbackend.common.ResultCode;
-import com.xytgy.teamallbackend.config.mq.FlashSaleCacheManager;
-import com.xytgy.teamallbackend.config.mq.MqConstants;
-import com.xytgy.teamallbackend.config.mq.MqProducer;
+import com.xytgy.teamallbackend.mq.config.FlashSaleCacheManager;
+import com.xytgy.teamallbackend.mq.constant.MqConstants;
+import com.xytgy.teamallbackend.mq.producer.MqProducer;
 import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.module.flashsale.dto.FlashSaleBuyRequest;
 import com.xytgy.teamallbackend.module.flashsale.entity.FlashSale;
 import com.xytgy.teamallbackend.module.flashsale.entity.FlashSaleAuditLog;
 import com.xytgy.teamallbackend.module.flashsale.entity.FlashSaleProduct;
-import com.xytgy.teamallbackend.module.flashsale.repository.FlashSaleAuditLogMapper;
-import com.xytgy.teamallbackend.module.flashsale.repository.FlashSaleMapper;
-import com.xytgy.teamallbackend.module.flashsale.repository.FlashSaleProductMapper;
+import com.xytgy.teamallbackend.module.flashsale.mapper.FlashSaleAuditLogMapper;
+import com.xytgy.teamallbackend.module.flashsale.mapper.FlashSaleMapper;
+import com.xytgy.teamallbackend.module.flashsale.mapper.FlashSaleProductMapper;
 import com.xytgy.teamallbackend.module.flashsale.service.FlashSaleService.FlashSaleBuyResult;
 import com.xytgy.teamallbackend.module.order.entity.Orders;
-import com.xytgy.teamallbackend.module.order.repository.OrdersMapper;
+import com.xytgy.teamallbackend.module.order.mapper.OrdersMapper;
 import com.xytgy.teamallbackend.module.product.entity.Product;
-import com.xytgy.teamallbackend.module.product.repository.ProductMapper;
+import com.xytgy.teamallbackend.module.product.mapper.ProductMapper;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -78,6 +78,17 @@ public class FlashSaleCoreService {
     static final String FLASH_STOCK_PREFIX = "{flash:";
     static final String FLASH_BOUGHT_PREFIX = "{flash:";
 
+    private static final String KEY_DEDUCT_FAIL_LIMIT = "flash.deduct.fail.limit";
+    private static final String KEY_DEDUCT_FAIL_SOLDOUT = "flash.deduct.fail.soldout";
+    private static final String STOCK_SUFFIX = "}:stock";
+    private static final String FIELD_STATUS = "status";
+    private static final String FIELD_FLASH_PRICE = "flashPrice";
+    private static final String FIELD_START_TIME = "startTime";
+    private static final String FIELD_END_TIME = "endTime";
+
+    // 信号值：Redis Lua 执行异常需降级到 MySQL
+    private static final long DEDUCT_DEGRADE_SIGNAL = Long.MIN_VALUE;
+
     @PostConstruct
     public void init() {
         this.flashDeductScript = loadLuaScript("lua/flash_deduct.lua");
@@ -91,7 +102,7 @@ public class FlashSaleCoreService {
             String text = new String(resource.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
             return new DefaultRedisScript<>(text, Long.class);
         } catch (IOException e) {
-            throw new RuntimeException("加载 Lua 脚本失败: " + path, e);
+            throw new ServiceException(ResultCode.ERROR, "加载 Lua 脚本失败: " + path);
         }
     }
 
@@ -99,62 +110,56 @@ public class FlashSaleCoreService {
     public FlashSaleBuyResult buy(Long userId, FlashSaleBuyRequest request) {
         metrics.increment("flash.deduct.total");
 
-        // === P0-1: 从 Redis 缓存读取活动信息（0 次 DB 查询） ===
-        // 预热时写入，24h TTL，缓存未命中才查 DB
-        Map<Object, Object> activity = cacheManager.getCachedActivity(request.getFlashSaleId());
-        if (activity.isEmpty()) {
-            FlashSale fs = flashSaleMapper.selectById(request.getFlashSaleId());
-            if (fs == null) { return fail("活动不存在"); }
-            Map<String, String> info = new LinkedHashMap<>();
-            info.put("id", String.valueOf(fs.getId()));
-            info.put("startTime", String.valueOf(fs.getStartTime()));
-            info.put("endTime", String.valueOf(fs.getEndTime()));
-            info.put("status", String.valueOf(fs.getStatus()));
-            cacheManager.cacheActivity(fs.getId(), info);
-            activity = new LinkedHashMap<>(info);
-        }
-
-        if (!"1".equals(String.valueOf(activity.get("status")))) {
+        Map<Object, Object> activity = loadActivity(request.getFlashSaleId());
+        if (activity == null) { return fail("活动不存在"); }
+        if (!"1".equals(String.valueOf(activity.get(FIELD_STATUS)))) {
             return fail("活动未进行中");
         }
-
-        // 活动时间校验
-        LocalDateTime now = LocalDateTime.now();
-        LocalDateTime startTime = LocalDateTime.parse(String.valueOf(activity.get("startTime")));
-        LocalDateTime endTime = LocalDateTime.parse(String.valueOf(activity.get("endTime")));
-        if (now.isBefore(startTime) || now.isAfter(endTime)) {
+        if (!isActivityTimeValid(activity)) {
             return fail("活动未开始或已结束");
         }
 
-        // === P0-1: 从 Redis 缓存读取活动商品信息（0 次 DB 查询） ===
-        Map<Object, Object> actProduct = cacheManager.getCachedActivityProduct(
-                request.getFlashSaleId(), request.getProductId());
-        if (actProduct.isEmpty()) {
-            FlashSaleProduct fsp = flashSaleProductMapper.selectOne(
-                    new LambdaQueryWrapper<FlashSaleProduct>()
-                            .eq(FlashSaleProduct::getFlashSaleId, request.getFlashSaleId())
-                            .eq(FlashSaleProduct::getProductId, request.getProductId()));
-            if (fsp == null) { return fail("活动商品不存在"); }
-            Map<String, String> pinfo = new LinkedHashMap<>();
-            pinfo.put("flashPrice", String.valueOf(fsp.getFlashPrice()));
-            pinfo.put("maxPerUser", String.valueOf(fsp.getMaxPerUser()));
-            cacheManager.cacheActivityProduct(request.getFlashSaleId(), request.getProductId(), pinfo);
-            actProduct = new LinkedHashMap<>(pinfo);
+        Map<Object, Object> actProduct = loadActivityProduct(request.getFlashSaleId(), request.getProductId());
+        if (actProduct == null) { return fail("活动商品不存在"); }
+
+        FlashSaleBuyResult limitResult = checkRateLimitAndCaptcha(userId, request);
+        if (limitResult != null) { return limitResult; }
+
+        submitBehaviorAnalysis(userId, request);
+
+        // 验证码 Token 一次性消费（GET + DEL 原子操作）
+        String tokenKey = CAPTCHA_TOKEN_PREFIX + request.getCaptchaToken();
+        String tokenValue = stringRedisTemplate.opsForValue().getAndDelete(tokenKey);
+        if (tokenValue == null) {
+            return fail("验证码无效或已过期");
         }
 
-        // L2 梯度限流
+        // Lua 原子扣减（1 次 RTT = 限购检查 + 库存扣减 + 已购标记）
+        Long deductResult = validateAndDecrementStock(userId, request.getProductId(), request.getFlashSaleId());
+        if (deductResult == DEDUCT_DEGRADE_SIGNAL) {
+            return degradeToMySql(request.getProductId(), userId, actProduct);
+        }
+
+        FlashSaleBuyResult errorResult = handleDeductResult(deductResult);
+        if (errorResult != null) { return errorResult; }
+
+        return processDeductSuccess(userId, request, actProduct, deductResult);
+    }
+
+    private FlashSaleBuyResult checkRateLimitAndCaptcha(Long userId, FlashSaleBuyRequest request) {
         FlashSaleRateLimiter.RateLimitResult rl = rateLimiter.check(userId, request.getFlashSaleId());
         if (rl.blocked()) {
-            metrics.increment("flash.deduct.fail.limit");
+            metrics.increment(KEY_DEDUCT_FAIL_LIMIT);
             return fail(rl.message());
         }
         if (rl.requireCaptcha()) {
-            metrics.increment("flash.deduct.fail.limit");
+            metrics.increment(KEY_DEDUCT_FAIL_LIMIT);
             return fail("请求过于频繁，请先完成验证码");
         }
+        return null;
+    }
 
-        // === P1-5: 行为分析异步化（提交到线程池，不阻塞主链路） ===
-        // 行为分析结果用于事后标记，不阻塞当前请求的扣减流程
+    private void submitBehaviorAnalysis(Long userId, FlashSaleBuyRequest request) {
         final String deviceFp = request.getDeviceFingerprint();
         final Long fsId = request.getFlashSaleId();
         try {
@@ -166,77 +171,32 @@ public class FlashSaleCoreService {
                 }
             });
         } catch (Exception e) {
-            // 线程池满也不影响主流程
             log.debug("行为分析提交失败: {}", e.getMessage());
         }
+    }
 
-        // 验证码 Token 一次性消费（GET + DEL 原子操作）
-        String tokenKey = CAPTCHA_TOKEN_PREFIX + request.getCaptchaToken();
-        String tokenValue = stringRedisTemplate.opsForValue().getAndDelete(tokenKey);
-        if (tokenValue == null) {
-            return fail("验证码无效或已过期");
-        }
-
-        // === P1-4: 删除冗余 SISMEMBER，完全依赖 Lua 内部原子检查 ===
-        // 原来 buy() 先 SISMEMBER 再 Lua，两次操作之间存在 TOCTOU 竞态窗口
-        // Lua 脚本内部已包含 sismember 检查，结果 -1 表示已购买
-        if (cacheManager.isLocalStockEmpty(request.getProductId())) {
-            metrics.increment("flash.deduct.fail.soldout");
-            return fail("已售罄");
-        }
-
-        // Lua 原子扣减（1 次 RTT = 限购检查 + 库存扣减 + 已购标记）
-        String stockKey = FLASH_STOCK_PREFIX + request.getProductId() + "}:stock";
-        String boughtKey = FLASH_BOUGHT_PREFIX + request.getProductId() + "}:bought:" + request.getFlashSaleId();
-        Long result;
-        try {
-            result = stringRedisTemplate.execute(
-                    flashDeductScript,
-                    List.of(stockKey, boughtKey),
-                    String.valueOf(userId));
-        } catch (Exception e) {
-            // === P0-3: 降级修复 — 本地计数器限流 + DB 乐观锁防超卖 ===
-            log.warn("Redis Lua 执行失败, 降级到 MySQL: {}", e.getMessage());
-            return degradeToMySql(request.getProductId(), userId, request.getFlashSaleId(), actProduct);
-        }
-
-        if (result == null) {
-            metrics.increment("flash.deduct.fail.limit");
-            return fail("系统异常，请稍后重试");
-        }
-        if (result == -1L) {
-            metrics.increment("flash.deduct.fail.bought");
-            return fail("已达限购数量，不可重复抢购");
-        }
-        if (result == 0L) {
-            metrics.increment("flash.deduct.fail.soldout");
-            return fail("已售罄");
-        }
-
+    private FlashSaleBuyResult processDeductSuccess(Long userId, FlashSaleBuyRequest request,
+                                                     Map<Object, Object> actProduct, Long deductResult) {
         metrics.increment("flash.deduct.success");
-        cacheManager.syncLocalStock(request.getProductId(), result.intValue());
+        cacheManager.syncLocalStock(request.getProductId(), deductResult.intValue());
 
-        // === P1-6: MQ 消息发送前先写 pending 记录（防消息丢失） ===
         String transactionId = buildTransactionId(request.getFlashSaleId(), request.getProductId(), userId);
         Map<String, Object> payload = Map.of(
                 "transactionId", transactionId,
                 "flashSaleId", request.getFlashSaleId(),
                 "productId", request.getProductId(),
                 "userId", userId,
-                "flashPrice", new BigDecimal(String.valueOf(actProduct.get("flashPrice"))));
+                FIELD_FLASH_PRICE, new BigDecimal(String.valueOf(actProduct.get(FIELD_FLASH_PRICE))));
 
-        // 先写 pending 记录（TTL 30 分钟），Consumer 消费成功后删除
-        // 如果 MQ 发送失败，pending 记录保留，定时补偿任务会据此重发
         String pendingKey = "flash:pending:" + transactionId;
         try {
             stringRedisTemplate.opsForValue().set(pendingKey, transactionId, 30, TimeUnit.MINUTES);
             mqProducer.send(MqConstants.TOPIC_FLASH_ORDER, MqConstants.TAG_FLASH_ORDER, transactionId, payload);
         } catch (Exception mqEx) {
             log.error("MQ 发送失败, pending 记录保留等待补偿: transactionId={}", transactionId);
-            // 不影响用户体验，定时补偿任务会扫描 pending 表重发
         }
 
-        log.info("秒杀扣减成功: userId={}, productId={}, remainStock={}", userId, request.getProductId(), result);
+        log.info("秒杀扣减成功: userId={}, productId={}, remainStock={}", userId, request.getProductId(), deductResult);
         return new FlashSaleBuyResult("SUCCESS", null, "抢购成功，订单生成中");
     }
 
@@ -247,15 +207,114 @@ public class FlashSaleCoreService {
     }
 
     /**
+     * 本地库存预检 + Redis Lua 原子扣减。
+     * <p>内部含 try-catch，Redis 异常时返回 DEDUCT_DEGRADE_SIGNAL 由调用方降级。
+     *
+     * @return 剩余库存（≥0）；{@link #DEDUCT_DEGRADE_SIGNAL} 表示需降级到 MySQL
+     */
+    private Long validateAndDecrementStock(Long userId, Long productId, Long flashSaleId) {
+        // === P1-4: 删除冗余 SISMEMBER，完全依赖 Lua 内部原子检查 ===
+        // Lua 脚本内部已包含 sismember 检查，结果 -1 表示已购买
+        if (cacheManager.isLocalStockEmpty(productId)) {
+            return 0L;
+        }
+        String stockKey = FLASH_STOCK_PREFIX + productId + STOCK_SUFFIX;
+        String boughtKey = FLASH_BOUGHT_PREFIX + productId + "}:bought:" + flashSaleId;
+        try {
+            return stringRedisTemplate.execute(
+                    flashDeductScript, List.of(stockKey, boughtKey), String.valueOf(userId));
+        } catch (Exception e) {
+            log.warn("Redis Lua 执行失败, 降级到 MySQL: {}", e.getMessage());
+            return DEDUCT_DEGRADE_SIGNAL;
+        }
+    }
+
+    /**
+     * 处理 Lua 脚本扣减结果，将原始返回值映射为业务结果。
+     *
+     * @param result Lua 脚本返回值：null=系统异常, -1=已达限购, 0=售罄, &gt;0=剩余库存
+     * @return 错误时返回 {@link FlashSaleBuyResult}，成功返回 null
+     */
+    private FlashSaleBuyResult handleDeductResult(Long result) {
+        if (result == null) {
+            metrics.increment(KEY_DEDUCT_FAIL_LIMIT);
+            return fail("系统异常，请稍后重试");
+        }
+        if (result == -1L) {
+            metrics.increment("flash.deduct.fail.bought");
+            return fail("已达限购数量，不可重复抢购");
+        }
+        if (result == 0L) {
+            metrics.increment(KEY_DEDUCT_FAIL_SOLDOUT);
+            return fail("已售罄");
+        }
+        return null;
+    }
+
+    /**
+     * 从缓存加载活动基础信息，缓存未命中时回源 DB 并写入缓存。
+     *
+     * @return 活动信息 Map，不存在时返回 null
+     */
+    private Map<Object, Object> loadActivity(Long flashSaleId) {
+        Map<Object, Object> activity = cacheManager.getCachedActivity(flashSaleId);
+        if (!activity.isEmpty()) {
+            return activity;
+        }
+        FlashSale fs = flashSaleMapper.selectById(flashSaleId);
+        if (fs == null) {
+            return null;
+        }
+        Map<String, String> info = new LinkedHashMap<>();
+        info.put("id", String.valueOf(fs.getId()));
+        info.put(FIELD_START_TIME, String.valueOf(fs.getStartTime()));
+        info.put(FIELD_END_TIME, String.valueOf(fs.getEndTime()));
+        info.put(FIELD_STATUS, String.valueOf(fs.getStatus()));
+        cacheManager.cacheActivity(fs.getId(), info);
+        return new LinkedHashMap<>(info);
+    }
+
+    /**
+     * 从缓存加载活动商品信息，缓存未命中时回源 DB 并写入缓存。
+     *
+     * @return 活动商品信息 Map，不存在时返回 null
+     */
+    private Map<Object, Object> loadActivityProduct(Long flashSaleId, Long productId) {
+        Map<Object, Object> actProduct = cacheManager.getCachedActivityProduct(flashSaleId, productId);
+        if (!actProduct.isEmpty()) {
+            return actProduct;
+        }
+        FlashSaleProduct fsp = flashSaleProductMapper.selectOne(
+                new LambdaQueryWrapper<FlashSaleProduct>()
+                        .eq(FlashSaleProduct::getFlashSaleId, flashSaleId)
+                        .eq(FlashSaleProduct::getProductId, productId));
+        if (fsp == null) {
+            return null;
+        }
+        Map<String, String> pinfo = new LinkedHashMap<>();
+        pinfo.put(FIELD_FLASH_PRICE, String.valueOf(fsp.getFlashPrice()));
+        pinfo.put("maxPerUser", String.valueOf(fsp.getMaxPerUser()));
+        cacheManager.cacheActivityProduct(flashSaleId, productId, pinfo);
+        return new LinkedHashMap<>(pinfo);
+    }
+
+    private boolean isActivityTimeValid(Map<Object, Object> activity) {
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime startTime = LocalDateTime.parse(String.valueOf(activity.get(FIELD_START_TIME)));
+        LocalDateTime endTime = LocalDateTime.parse(String.valueOf(activity.get(FIELD_END_TIME)));
+        return !now.isBefore(startTime) && !now.isAfter(endTime);
+    }
+
+    /**
      * Redis 不可用时降级到 MySQL 乐观锁扣减。
      * 使用本地 AtomicInteger 计数器限制每秒放行数，防止 DB 被打满。
      * 使用 UPDATE ... WHERE stock > 0 乐观锁，避免超卖。
      */
-    private FlashSaleBuyResult degradeToMySql(Long productId, Long userId, Long flashSaleId,
+    private FlashSaleBuyResult degradeToMySql(Long productId, Long userId,
                                                Map<Object, Object> actProduct) {
         // P0#1: 定时器每秒重置，此处只做原子递增和阈值判断
         if (degradeCounter.incrementAndGet() > DEGRADE_MAX_PER_SEC) {
-            metrics.increment("flash.deduct.fail.limit");
+            metrics.increment(KEY_DEDUCT_FAIL_LIMIT);
             return fail("系统繁忙，请稍后重试");
         }
 
@@ -266,20 +325,19 @@ public class FlashSaleCoreService {
                         .gt("stock", 0)
                         .setSql("stock = stock - 1"));
         if (affected == 0) {
-            metrics.increment("flash.deduct.fail.soldout");
+            metrics.increment(KEY_DEDUCT_FAIL_SOLDOUT);
             return fail("已售罄");
         }
 
         metrics.increment("flash.deduct.success");
 
         // 降级模式下直接创建订单（不走 MQ），避免 MQ 也故障时订单丢失
-        String transactionId = buildTransactionId(flashSaleId, productId, userId);
         try {
             Orders order = new Orders();
             // P1#14: 使用 UUID 避免订单号碰撞（原方案同毫秒+同尾缀会冲突）
             order.setOrderNo("FS" + UUID.randomUUID().toString().replace("-", ""));
             order.setUserId(userId);
-            order.setTotalAmount(new BigDecimal(String.valueOf(actProduct.get("flashPrice"))));
+            order.setTotalAmount(new BigDecimal(String.valueOf(actProduct.get(FIELD_FLASH_PRICE))));
             order.setStatus(0);
             order.setSource(1);
             order.setCreateTime(LocalDateTime.now());
@@ -307,7 +365,7 @@ public class FlashSaleCoreService {
             if (remaining < 0) {
                 remaining = 0;
             }
-            String stockKey = FLASH_STOCK_PREFIX + fp.getProductId() + "}:stock";
+            String stockKey = FLASH_STOCK_PREFIX + fp.getProductId() + STOCK_SUFFIX;
             stringRedisTemplate.opsForValue().set(stockKey, String.valueOf(remaining));
             cacheManager.warmUp(fp.getProductId(), remaining);
             cacheManager.broadcastStockChange(fp.getProductId(), remaining);
@@ -316,15 +374,15 @@ public class FlashSaleCoreService {
         // 预热活动基础信息到 Redis Hash（消除 buy() 中的 DB 查询）
         Map<String, String> activityInfo = new LinkedHashMap<>();
         activityInfo.put("id", String.valueOf(flashSale.getId()));
-        activityInfo.put("startTime", String.valueOf(flashSale.getStartTime()));
-        activityInfo.put("endTime", String.valueOf(flashSale.getEndTime()));
-        activityInfo.put("status", String.valueOf(flashSale.getStatus()));
+        activityInfo.put(FIELD_START_TIME, String.valueOf(flashSale.getStartTime()));
+        activityInfo.put(FIELD_END_TIME, String.valueOf(flashSale.getEndTime()));
+        activityInfo.put(FIELD_STATUS, String.valueOf(flashSale.getStatus()));
         cacheManager.cacheActivity(flashSaleId, activityInfo);
 
         // 预热每个商品的活动信息（秒杀价、限购数）
         for (FlashSaleProduct fp : products) {
             Map<String, String> pinfo = new LinkedHashMap<>();
-            pinfo.put("flashPrice", String.valueOf(fp.getFlashPrice()));
+            pinfo.put(FIELD_FLASH_PRICE, String.valueOf(fp.getFlashPrice()));
             pinfo.put("maxPerUser", String.valueOf(fp.getMaxPerUser()));
             cacheManager.cacheActivityProduct(flashSaleId, fp.getProductId(), pinfo);
         }
@@ -338,7 +396,7 @@ public class FlashSaleCoreService {
             throw new ServiceException(ResultCode.BAD_REQUEST, "补货数量必须大于 0");
         }
 
-        String stockKey = FLASH_STOCK_PREFIX + productId + "}:stock";
+        String stockKey = FLASH_STOCK_PREFIX + productId + STOCK_SUFFIX;
         String current = stringRedisTemplate.opsForValue().get(stockKey);
         int newStock = (current != null ? Integer.parseInt(current) : 0) + quantity;
         stringRedisTemplate.opsForValue().set(stockKey, String.valueOf(newStock));
@@ -361,7 +419,7 @@ public class FlashSaleCoreService {
                         .eq(FlashSaleProduct::getFlashSaleId, flashSaleId));
 
         for (FlashSaleProduct fp : products) {
-            String stockKey = FLASH_STOCK_PREFIX + fp.getProductId() + "}:stock";
+            String stockKey = FLASH_STOCK_PREFIX + fp.getProductId() + STOCK_SUFFIX;
             String boughtKey = FLASH_BOUGHT_PREFIX + fp.getProductId() + "}:bought:" + flashSaleId;
             stringRedisTemplate.delete(stockKey);
             stringRedisTemplate.delete(boughtKey);

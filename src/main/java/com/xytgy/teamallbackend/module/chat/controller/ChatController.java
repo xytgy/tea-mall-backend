@@ -13,6 +13,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
@@ -52,6 +53,7 @@ public class ChatController {
 
     // ================== 商家端 ==================
 
+    @PreAuthorize("hasRole('MERCHANT')")
     @GetMapping("/sessions")
     @Operation(summary = "【商家端】获取会话列表")
     public Result<List<ChatSessionVO>> getSessions() {
@@ -64,6 +66,7 @@ public class ChatController {
         return Result.success(chatService.listSessions(merchantId));
     }
 
+    @PreAuthorize("hasRole('MERCHANT')")
     @GetMapping("/merchant/messages")
     @Operation(summary = "【商家端】获取与特定买家的历史消息")
     public Result<List<ChatMessageVO>> getMerchantMessages(
@@ -78,6 +81,7 @@ public class ChatController {
         return Result.success(chatService.listMessages(buyerId, merchantId, page, size));
     }
 
+    @PreAuthorize("hasRole('MERCHANT')")
     @PostMapping("/merchant/read")
     @Operation(summary = "【商家端】标记消息为已读")
     public Result<Void> merchantMarkAsRead(@Validated @RequestBody MerchantChatReadRequest request) {

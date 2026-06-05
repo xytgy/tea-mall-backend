@@ -2,8 +2,8 @@ package com.xytgy.teamallbackend.config.websocket;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.xytgy.teamallbackend.config.mq.MqConstants;
-import com.xytgy.teamallbackend.config.mq.MqProducer;
+import com.xytgy.teamallbackend.mq.constant.MqConstants;
+import com.xytgy.teamallbackend.mq.producer.MqProducer;
 import com.xytgy.teamallbackend.module.chat.service.ChatService;
 import com.xytgy.teamallbackend.module.chat.vo.ChatMessageVO;
 import com.xytgy.teamallbackend.utils.JwtUtils;
@@ -34,6 +34,9 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private static final String ATTR_USER_ID = "userId";
     private static final String ATTR_ROLE = "role";
     private static final String ATTR_SHOP_ID = "shopId";
+    private static final String FIELD_RECEIVER_ID = "receiverId";
+    private static final String FIELD_MSG_TYPE = "msgType";
+    private static final String FIELD_CONTENT = "content";
 
     private final ConcurrentHashMap<Long, WebSocketSession> userSessions = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Long, WebSocketSession> shopSessions = new ConcurrentHashMap<>();
@@ -57,6 +60,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                         .getFirst("token");
             }
         } catch (Exception ignored) {
+            // ignore
         }
 
         if (token == null || token.isBlank()) {
@@ -87,7 +91,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         }
 
         Integer role = parseInt(claims.get("role"));
-        Long shopId = parseLong(claims.get("shopId"));
+        Long shopId = parseLong(claims.get(ATTR_SHOP_ID));
 
         session.getAttributes().put(ATTR_USER_ID, userId);
         session.getAttributes().put(ATTR_ROLE, role);
@@ -123,9 +127,9 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
         if (TYPE_SEND_MSG.equals(type)) {
             JsonNode data = jsonNode.path("data");
-            Long receiverId = data.hasNonNull("receiverId") ? data.get("receiverId").asLong() : null;
-            String content = data.path("content").asText(null);
-            Integer msgType = data.hasNonNull("msgType") ? data.get("msgType").asInt() : 0;
+            Long receiverId = data.hasNonNull(FIELD_RECEIVER_ID) ? data.get(FIELD_RECEIVER_ID).asLong() : null;
+            String content = data.path(FIELD_CONTENT).asText(null);
+            Integer msgType = data.hasNonNull(FIELD_MSG_TYPE) ? data.get(FIELD_MSG_TYPE).asInt() : 0;
 
             if (receiverId == null || content == null || content.isBlank()) {
                 return;
@@ -136,10 +140,10 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             // 通过 MQ 异步分发消息到接收方，解耦持久化与推送
             Map<String, Object> dispatchMsg = new HashMap<>();
             dispatchMsg.put("senderId", userId);
-            dispatchMsg.put("receiverId", receiverId);
+            dispatchMsg.put(FIELD_RECEIVER_ID, receiverId);
             dispatchMsg.put("messageId", savedMessage.getId());
-            dispatchMsg.put("content", content);
-            dispatchMsg.put("msgType", msgType);
+            dispatchMsg.put(FIELD_CONTENT, content);
+            dispatchMsg.put(FIELD_MSG_TYPE, msgType);
             mqProducer.send(MqConstants.TOPIC_CHAT_MESSAGE, MqConstants.TAG_MSG_DISPATCH,
                     String.valueOf(savedMessage.getId()), dispatchMsg);
 
@@ -168,8 +172,8 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             Map<String, Object> data = new HashMap<>();
             data.put("id", messageId);
             data.put("senderId", null);
-            data.put("content", content);
-            data.put("msgType", msgType);
+            data.put(FIELD_CONTENT, content);
+            data.put(FIELD_MSG_TYPE, msgType);
             response.put("data", data);
             receiverSession.sendMessage(new TextMessage(objectMapper.writeValueAsString(response)));
         } catch (Exception e) {
@@ -224,6 +228,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                 session.close(status);
             }
         } catch (Exception ignored) {
+            // ignore
         }
     }
 

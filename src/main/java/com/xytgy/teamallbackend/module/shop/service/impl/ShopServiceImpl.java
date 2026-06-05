@@ -7,7 +7,7 @@ import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.module.shop.dto.ShopRegisterRequest;
 import com.xytgy.teamallbackend.module.shop.dto.ShopUpdateRequest;
 import com.xytgy.teamallbackend.module.shop.entity.Shop;
-import com.xytgy.teamallbackend.module.shop.repository.ShopMapper;
+import com.xytgy.teamallbackend.module.shop.mapper.ShopMapper;
 import com.xytgy.teamallbackend.module.shop.service.ShopService;
 import com.xytgy.teamallbackend.module.shop.vo.ShopVO;
 import org.springframework.beans.BeanUtils;

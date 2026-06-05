@@ -8,15 +8,15 @@ import com.xytgy.teamallbackend.module.user.dto.AdminUserAddRequest;
 import com.xytgy.teamallbackend.module.user.dto.UserProfileUpdateRequest;
 import com.xytgy.teamallbackend.module.user.entity.User;
 import com.xytgy.teamallbackend.exception.ServiceException;
-import com.xytgy.teamallbackend.module.user.repository.UserMapper;
+import com.xytgy.teamallbackend.module.user.mapper.UserMapper;
 import com.xytgy.teamallbackend.module.user.service.UserService;
 import com.xytgy.teamallbackend.utils.JwtUtils;
 import com.xytgy.teamallbackend.utils.PasswordUtil;
-import com.xytgy.teamallbackend.utils.RateLimitService;
+import com.xytgy.teamallbackend.ratelimit.RateLimitService;
 import com.xytgy.teamallbackend.module.user.vo.LoginResponse;
 import com.xytgy.teamallbackend.module.user.vo.UserOverviewStatsVO;
 import com.xytgy.teamallbackend.module.user.vo.UserVO;
-import com.xytgy.teamallbackend.module.user.repository.UserStatsMapper;
+import com.xytgy.teamallbackend.module.user.mapper.UserStatsMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import com.xytgy.teamallbackend.module.user.dto.LoginRequest;
@@ -26,7 +26,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import com.xytgy.teamallbackend.security.SecurityUtils;
 import java.time.format.DateTimeFormatter;
-import com.xytgy.teamallbackend.module.user.dto.UserInfoCache;
+import com.xytgy.teamallbackend.module.user.cache.UserInfoCache;
 import com.xytgy.teamallbackend.utils.AliyunOSSUtils;
 import com.xytgy.teamallbackend.utils.RedisUtils;
 import java.io.ByteArrayInputStream;
@@ -37,7 +37,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 import com.xytgy.teamallbackend.module.shop.service.ShopService;
 import com.xytgy.teamallbackend.module.user.vo.UserInfoVO;
 
@@ -56,12 +55,14 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     private static final String REFRESH_TOKEN_KEY_PREFIX = "login:refresh:token:";
     private static final String USER_INFO_CACHE_PREFIX = "user:info:";
     /** 用户信息缓存 TTL：7 天（与 Refresh Token 一致） */
-    private static final long USER_INFO_CACHE_TTL_MINUTES = 7 * 24 * 60;
+    private static final long USER_INFO_CACHE_TTL_MINUTES = 7L * 24 * 60;
     /**
      * 用户 Refresh Token 集合前缀，用于退出登录时批量撤销
      * key: login:user:refresh:{userId}, value: Set of refreshTokens
      */
     private static final String USER_REFRESH_TOKENS_PREFIX = "login:user:refresh:";
+    private static final String COLUMN_USER_ACCOUNT = "useraccount";
+    private static final java.security.SecureRandom SECURE_RANDOM = new java.security.SecureRandom();
 
     private final JwtUtils jwtUtils;
     private final StringRedisTemplate stringRedisTemplate;
@@ -92,7 +93,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         String password = request.getPassword();
 
         QueryWrapper<User> queryWrapper = new QueryWrapper<>();
-        queryWrapper.eq("useraccount", userAccount);
+        queryWrapper.eq(COLUMN_USER_ACCOUNT, userAccount);
         User user = this.getOne(queryWrapper);
         if (user == null) {
             throw new ServiceException(ResultCode.UNAUTHORIZED,"账号或密码错误");
@@ -209,7 +210,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         String userAccount = user.getUserAccount();
         
         QueryWrapper<User> queryWrapper = new QueryWrapper<>();
-        queryWrapper.eq("useraccount", userAccount);
+        queryWrapper.eq(COLUMN_USER_ACCOUNT, userAccount);
         if (this.count(queryWrapper) > 0) {
             // 使用模糊提示，防止攻击者通过注册接口枚举已存在用户
             throw new ServiceException(ResultCode.CONFLICT, "注册失败，请检查账号信息或尝试其他账号");
@@ -239,7 +240,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
 
         String userAccount = request.getUserAccount().trim();
         QueryWrapper<User> existsQuery = new QueryWrapper<>();
-        existsQuery.eq("useraccount", userAccount);
+        existsQuery.eq(COLUMN_USER_ACCOUNT, userAccount);
         if (this.count(existsQuery) > 0) {
             throw new ServiceException(ResultCode.CONFLICT, "用户名已存在");
         }
@@ -260,10 +261,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
      */
     private String generateTempPassword() {
         String chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
-        java.security.SecureRandom random = new java.security.SecureRandom();
         StringBuilder sb = new StringBuilder(12);
         for (int i = 0; i < 12; i++) {
-            sb.append(chars.charAt(random.nextInt(chars.length())));
+            sb.append(chars.charAt(SECURE_RANDOM.nextInt(chars.length())));
         }
         return sb.toString();
     }

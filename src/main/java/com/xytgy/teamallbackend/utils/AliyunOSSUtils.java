@@ -13,6 +13,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.time.LocalDate;
@@ -23,6 +24,8 @@ import java.util.UUID;
 @Component
 @RequiredArgsConstructor
 public class AliyunOSSUtils {
+
+    private static final String HTTPS_PREFIX = "https://";
 
     private final AliyunOSSProperties aliyunOSSProperties;
 
@@ -70,8 +73,8 @@ public class AliyunOSSUtils {
         }
 
         String endpoint = aliyunOSSProperties.getEndpoint().trim();
-        if (!endpoint.startsWith("http://") && !endpoint.startsWith("https://")) {
-            endpoint = "https://" + endpoint;
+        if (!endpoint.startsWith("http://") && !endpoint.startsWith(HTTPS_PREFIX)) {
+            endpoint = HTTPS_PREFIX + endpoint;
         }
         OSS ossClient = new OSSClientBuilder().build(
                 endpoint,
@@ -91,7 +94,7 @@ public class AliyunOSSUtils {
             }
         }
 
-        StringBuilder stringBuilder = new StringBuilder("https://");
+        StringBuilder stringBuilder = new StringBuilder(HTTPS_PREFIX);
         stringBuilder
                 .append(aliyunOSSProperties.getBucketName())
                 .append(".")
@@ -111,6 +114,22 @@ public class AliyunOSSUtils {
         if (inputStream == null || !StringUtils.hasText(originalFilename)) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "上传参数不完整");
         }
+        String lowerName = originalFilename.toLowerCase();
+        if (!lowerName.endsWith(".jpg") && !lowerName.endsWith(".jpeg")
+                && !lowerName.endsWith(".png") && !lowerName.endsWith(".webp")
+                && !lowerName.endsWith(".gif")) {
+            throw new ServiceException(ResultCode.BAD_REQUEST, "仅支持 jpg/jpeg/png/webp/gif 格式");
+        }
+        BufferedInputStream buffered = new BufferedInputStream(inputStream);
+        buffered.mark(12);
+        try {
+            if (!FileMagicUtils.isImage(buffered)) {
+                throw new ServiceException(ResultCode.BAD_REQUEST, "文件内容不是合法的图片格式");
+            }
+            buffered.reset();
+        } catch (IOException e) {
+            throw new ServiceException(ResultCode.BAD_REQUEST, "文件读取失败");
+        }
         if (!StringUtils.hasText(aliyunOSSProperties.getEndpoint())
                 || !StringUtils.hasText(aliyunOSSProperties.getAccessKeyId())
                 || !StringUtils.hasText(aliyunOSSProperties.getAccessKeySecret())
@@ -122,8 +141,8 @@ public class AliyunOSSUtils {
         String objectKey = "avatars/" + fileName;
 
         String endpoint = aliyunOSSProperties.getEndpoint().trim();
-        if (!endpoint.startsWith("http://") && !endpoint.startsWith("https://")) {
-            endpoint = "https://" + endpoint;
+        if (!endpoint.startsWith("http://") && !endpoint.startsWith(HTTPS_PREFIX)) {
+            endpoint = HTTPS_PREFIX + endpoint;
         }
         OSS ossClient = new OSSClientBuilder().build(
                 endpoint,
@@ -131,8 +150,8 @@ public class AliyunOSSUtils {
                 aliyunOSSProperties.getAccessKeySecret()
         );
         try {
-            ossClient.putObject(aliyunOSSProperties.getBucketName(), objectKey, inputStream);
-            StringBuilder sb = new StringBuilder("https://");
+            ossClient.putObject(aliyunOSSProperties.getBucketName(), objectKey, buffered);
+            StringBuilder sb = new StringBuilder(HTTPS_PREFIX);
             sb.append(aliyunOSSProperties.getBucketName())
               .append(".")
               .append(aliyunOSSProperties.getEndpoint())

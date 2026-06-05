@@ -22,13 +22,13 @@ import com.xytgy.teamallbackend.module.order.dto.OrderCreateRequest;
 import com.xytgy.teamallbackend.module.order.dto.OrderPayRequest;
 import com.xytgy.teamallbackend.module.order.dto.OrderReviewRequest;
 import com.xytgy.teamallbackend.module.product.entity.ProductReview;
-import com.xytgy.teamallbackend.module.product.repository.ProductReviewMapper;
+import com.xytgy.teamallbackend.module.product.mapper.ProductReviewMapper;
 import com.xytgy.teamallbackend.module.order.entity.OrderItem;
 import com.xytgy.teamallbackend.module.order.entity.Orders;
 import com.xytgy.teamallbackend.module.order.entity.PaymentRecord;
 import com.xytgy.teamallbackend.module.product.entity.Product;
 import com.xytgy.teamallbackend.exception.ServiceException;
-import com.xytgy.teamallbackend.module.order.repository.OrdersMapper;
+import com.xytgy.teamallbackend.module.order.mapper.OrdersMapper;
 import com.xytgy.teamallbackend.module.cart.service.CartService;
 import com.xytgy.teamallbackend.module.order.service.OrderItemService;
 import com.xytgy.teamallbackend.module.order.service.OrdersService;
@@ -39,9 +39,9 @@ import com.xytgy.teamallbackend.module.order.vo.LogisticsVO;
 import com.xytgy.teamallbackend.module.order.vo.MerchantOrderVO;
 import com.xytgy.teamallbackend.module.order.vo.OrderVO;
 import com.xytgy.teamallbackend.module.order.vo.OrderStatsVO;
-import com.xytgy.teamallbackend.config.mq.MqConstants;
-import com.xytgy.teamallbackend.config.mq.MqProducer;
-import com.xytgy.teamallbackend.utils.DistributedLock;
+import com.xytgy.teamallbackend.mq.constant.MqConstants;
+import com.xytgy.teamallbackend.mq.producer.MqProducer;
+import com.xytgy.teamallbackend.lock.DistributedLock;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
@@ -53,7 +53,6 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 /**
 * @author xytgy
@@ -82,6 +81,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
     private final MqProducer mqProducer;
 
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final String FIELD_STATUS = "status";
 
     private AlipayClient getAlipayClient() {
         AlipayClient client = alipayClientProvider.getIfAvailable();
@@ -94,6 +94,28 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
     @Override
     @Transactional(rollbackFor = Exception.class)
     public CreateOrderVO createOrder(Long userId, OrderCreateRequest request) {
+        Map<Long, Integer> productQtyMap = buildAndValidateProductQtyMap(request);
+        Map<Long, Product> productMap = loadAndValidateProducts(productQtyMap);
+        BigDecimal totalAmount = validateStockAndCalcTotal(productQtyMap, productMap);
+
+        Orders order = copyMapper.toOrders(request);
+        order.setOrderNo(generateOrderNo(userId));
+        order.setUserId(userId);
+        order.setTotalAmount(totalAmount);
+        order.setStatus(Orders.STATUS_PENDING_PAYMENT);
+        save(order);
+
+        deductStockAndSaveItems(order, productQtyMap, productMap);
+        cartService.removeByUserAndProductIds(userId, new ArrayList<>(productQtyMap.keySet()));
+
+        Map<String, Object> timeoutMsg = Map.of("orderId", order.getId(), "userId", userId);
+        mqProducer.sendDelay(MqConstants.TOPIC_ORDER_TIMEOUT, MqConstants.TAG_TIMEOUT_CANCEL,
+                String.valueOf(order.getId()), timeoutMsg, MqConstants.DELAY_LEVEL_30_MINUTES);
+
+        return new CreateOrderVO(order.getOrderNo(), order.getId());
+    }
+
+    private Map<Long, Integer> buildAndValidateProductQtyMap(OrderCreateRequest request) {
         if (request == null || request.getItems() == null || request.getItems().isEmpty()) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "订单商品不能为空");
         }
@@ -102,7 +124,6 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
                 || !StringUtils.hasText(request.getReceiverAddress())) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "收货信息不完整");
         }
-
         Map<Long, Integer> productQtyMap = new LinkedHashMap<>();
         for (OrderCreateRequest.Item item : request.getItems()) {
             if (item.getProductId() == null || item.getQuantity() == null || item.getQuantity() < 1) {
@@ -110,16 +131,18 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
             }
             productQtyMap.merge(item.getProductId(), item.getQuantity(), Integer::sum);
         }
+        return productQtyMap;
+    }
 
-        //批量查询，提高性能
+    private Map<Long, Product> loadAndValidateProducts(Map<Long, Integer> productQtyMap) {
         List<Product> products = productService.listByIds(productQtyMap.keySet());
         if (products.size() != productQtyMap.size()) {
             throw new ServiceException(ResultCode.NOT_FOUND, "存在无效商品");
         }
-        //空间换时间优化
-        Map<Long, Product> productMap = products.stream().collect(Collectors.toMap(Product::getId, p -> p));
+        return products.stream().collect(Collectors.toMap(Product::getId, p -> p));
+    }
 
-        //避免N+1 性能问题
+    private BigDecimal validateStockAndCalcTotal(Map<Long, Integer> productQtyMap, Map<Long, Product> productMap) {
         BigDecimal totalAmount = BigDecimal.ZERO;
         for (Map.Entry<Long, Integer> entry : productQtyMap.entrySet()) {
             Product product = productMap.get(entry.getKey());
@@ -131,14 +154,10 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
             }
             totalAmount = totalAmount.add(product.getPrice().multiply(BigDecimal.valueOf(entry.getValue())));
         }
+        return totalAmount;
+    }
 
-        Orders order = copyMapper.toOrders(request);
-        order.setOrderNo(generateOrderNo(userId));
-        order.setUserId(userId);
-        order.setTotalAmount(totalAmount);
-        order.setStatus(Orders.STATUS_PENDING_PAYMENT);
-        save(order);
-
+    private void deductStockAndSaveItems(Orders order, Map<Long, Integer> productQtyMap, Map<Long, Product> productMap) {
         List<OrderItem> orderItems = new ArrayList<>();
         for (Map.Entry<Long, Integer> entry : productQtyMap.entrySet()) {
             Product product = productMap.get(entry.getKey());
@@ -164,14 +183,6 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
             orderItems.add(item);
         }
         orderItemService.saveBatch(orderItems);
-        cartService.removeByUserAndProductIds(userId, new ArrayList<>(productQtyMap.keySet()));
-
-        // 下单成功后发送 30 分钟延迟消息，超时未支付自动取消
-        Map<String, Object> timeoutMsg = Map.of("orderId", order.getId(), "userId", userId);
-        mqProducer.sendDelay(MqConstants.TOPIC_ORDER_TIMEOUT, MqConstants.TAG_TIMEOUT_CANCEL,
-                String.valueOf(order.getId()), timeoutMsg, MqConstants.DELAY_LEVEL_30_MINUTES);
-
-        return new CreateOrderVO(order.getOrderNo(), order.getId());
     }
 
     @ReadOnly
@@ -274,39 +285,39 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         return getAlipayClient().execute(request);
     }
 
-    private void handleTradeStatusForClose(PaymentRecord record, String tradeStatus) throws AlipayApiException {
+    private void handleTradeStatusForClose(PaymentRecord paymentRecord, String tradeStatus) throws AlipayApiException {
         if ("TRADE_SUCCESS".equals(tradeStatus) || "TRADE_FINISHED".equals(tradeStatus)) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "该订单已完成支付，无法取消；如需撤销请在订单中发起退款。");
         }
         if ("TRADE_CLOSED".equals(tradeStatus)) {
-            markRecordClosed(record);
+            markRecordClosed(paymentRecord);
             return;
         }
-        closeAlipayTradeAndRetry(record);
+        closeAlipayTradeAndRetry(paymentRecord);
     }
 
-    private void closeAlipayTradeAndRetry(PaymentRecord record) throws AlipayApiException {
+    private void closeAlipayTradeAndRetry(PaymentRecord paymentRecord) throws AlipayApiException {
         AlipayTradeCloseRequest closeRequest = new AlipayTradeCloseRequest();
         AlipayTradeCloseModel closeModel = new AlipayTradeCloseModel();
-        closeModel.setOutTradeNo(record.getOutTradeNo());
+        closeModel.setOutTradeNo(paymentRecord.getOutTradeNo());
         closeRequest.setBizModel(closeModel);
 
         AlipayTradeCloseResponse closeResponse = getAlipayClient().execute(closeRequest);
         if (closeResponse.isSuccess()) {
-            markRecordClosed(record);
+            markRecordClosed(paymentRecord);
             return;
         }
-        AlipayTradeQueryResponse requery = queryAlipayTradeStatus(record.getOutTradeNo());
+        AlipayTradeQueryResponse requery = queryAlipayTradeStatus(paymentRecord.getOutTradeNo());
         if (requery.isSuccess()) {
-            handleTradeStatusForClose(record, requery.getTradeStatus());
+            handleTradeStatusForClose(paymentRecord, requery.getTradeStatus());
             return;
         }
         throw new ServiceException(ResultCode.ERROR, "支付宝关单失败: " + closeResponse.getSubMsg());
     }
 
-    private void markRecordClosed(PaymentRecord record) {
-        record.setStatus(PaymentRecord.STATUS_CLOSED);
-        paymentRecordService.updateById(record);
+    private void markRecordClosed(PaymentRecord paymentRecord) {
+        paymentRecord.setStatus(PaymentRecord.STATUS_CLOSED);
+        paymentRecordService.updateById(paymentRecord);
     }
 
     // S2229: 显式声明传播行为，避免嵌套事务配置冲突
@@ -493,13 +504,13 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
                 .build();
                 
         com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<Orders> queryWrapper = new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<>();
-        queryWrapper.select("status", "COUNT(*) as count")
+        queryWrapper.select(FIELD_STATUS, "COUNT(*) as count")
                 .eq("user_id", userId)
-                .groupBy("status");
+                .groupBy(FIELD_STATUS);
         List<Map<String, Object>> result = this.listMaps(queryWrapper);
                 
         for (Map<String, Object> map : result) {
-            Integer status = ((Number) map.get("status")).intValue();
+            Integer status = ((Number) map.get(FIELD_STATUS)).intValue();
             Integer count = ((Number) map.get("count")).intValue();
             // S131: switch 必须包含 default 分支
             switch (status) {
@@ -507,7 +518,8 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
                 case Orders.STATUS_PAID -> stats.setPacking(count);
                 case Orders.STATUS_SHIPPED -> stats.setDelivering(count);
                 case Orders.STATUS_COMPLETED -> stats.setReviewing(count);
-                default -> { }
+                default -> { // intentionally empty: 其他状态不计入统计
+                }
             }
         }
         return stats;
@@ -596,32 +608,32 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
             throw new ServiceException(ResultCode.BAD_REQUEST, "订单状态不正确，无法同意退款");
         }
 
-        PaymentRecord record = null;
+        PaymentRecord paymentRecord = null;
         if (order.getPaymentId() != null) {
-            record = paymentRecordService.getById(order.getPaymentId());
+            paymentRecord = paymentRecordService.getById(order.getPaymentId());
         }
-        if (record == null) {
-            record = paymentRecordService.getLastPaidRecord(order.getId());
+        if (paymentRecord == null) {
+            paymentRecord = paymentRecordService.getLastPaidRecord(order.getId());
         }
-        if (record == null) {
+        if (paymentRecord == null) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "无有效支付记录，无法退款");
         }
 
-        if (!Objects.equals(record.getStatus(), PaymentRecord.STATUS_PAID) && !Objects.equals(record.getStatus(), PaymentRecord.STATUS_REFUNDED)) {
+        if (!Objects.equals(paymentRecord.getStatus(), PaymentRecord.STATUS_PAID) && !Objects.equals(paymentRecord.getStatus(), PaymentRecord.STATUS_REFUNDED)) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "支付记录状态异常，无法退款");
         }
 
-        BigDecimal refundAmount = record.getTotalAmount();
+        BigDecimal refundAmount = paymentRecord.getTotalAmount();
         if (refundAmount == null) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "支付金额异常，无法退款");
         }
 
         // 远程调用放在事务外
-        if (!Objects.equals(record.getStatus(), PaymentRecord.STATUS_REFUNDED)) {
+        if (!Objects.equals(paymentRecord.getStatus(), PaymentRecord.STATUS_REFUNDED)) {
             String outRequestNo = "refund_" + order.getId();
             AlipayTradeRefundRequest refundRequest = new AlipayTradeRefundRequest();
             AlipayTradeRefundModel refundModel = new AlipayTradeRefundModel();
-            refundModel.setOutTradeNo(record.getOutTradeNo());
+            refundModel.setOutTradeNo(paymentRecord.getOutTradeNo());
             refundModel.setRefundAmount(refundAmount.toString());
             refundModel.setOutRequestNo(outRequestNo);
             refundRequest.setBizModel(refundModel);
@@ -630,15 +642,15 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
                 if (!refundResponse.isSuccess()) {
                     throw new ServiceException(ResultCode.ERROR, "支付宝退款失败: " + refundResponse.getSubMsg());
                 }
-                record.setStatus(PaymentRecord.STATUS_REFUNDED);
-                paymentRecordService.updateById(record);
+                paymentRecord.setStatus(PaymentRecord.STATUS_REFUNDED);
+                paymentRecordService.updateById(paymentRecord);
             } catch (AlipayApiException e) {
                 throw new ServiceException(ResultCode.ERROR, "支付宝退款异常: " + e.getMessage());
             }
         }
 
-        // 事务内只做数据库操作
-        doApproveRefundInTransaction(order);
+        // S6809: 通过代理调用，确保 @Transactional 生效
+        selfProvider.getObject().doApproveRefundInTransaction(order);
     }
 
     @Transactional(rollbackFor = Exception.class)

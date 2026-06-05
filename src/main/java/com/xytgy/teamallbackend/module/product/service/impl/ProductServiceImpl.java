@@ -15,10 +15,10 @@ import com.xytgy.teamallbackend.module.product.dto.ProductStatusRequest;
 import com.xytgy.teamallbackend.module.product.dto.ProductUpdateRequest;
 import com.xytgy.teamallbackend.module.product.entity.Product;
 import com.xytgy.teamallbackend.module.product.entity.ProductReview;
-import com.xytgy.teamallbackend.module.product.repository.ProductReviewMapper;
+import com.xytgy.teamallbackend.module.product.mapper.ProductReviewMapper;
 import com.xytgy.teamallbackend.module.user.entity.User;
 import com.xytgy.teamallbackend.exception.ServiceException;
-import com.xytgy.teamallbackend.module.product.repository.ProductMapper;
+import com.xytgy.teamallbackend.module.product.mapper.ProductMapper;
 import com.xytgy.teamallbackend.module.product.service.ProductService;
 import com.xytgy.teamallbackend.module.user.service.UserService;
 import com.xytgy.teamallbackend.utils.RedisUtils;
@@ -56,6 +56,9 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
     private final ProductReviewMapper productReviewMapper;
 
     private final RedisUtils redisUtils;
+
+    private static final String CACHE_PRODUCT_LIST_PATTERN = "cache:product:list:*";
+    private static final String CACHE_PRODUCT_DETAIL_PREFIX = "cache:product:detail:";
 
     @ReadOnly
     @Override
@@ -101,7 +104,7 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
         product.setMerchantId(merchantId);
         // 数据库无 sales 字段时依赖表默认值；有字段时建议 default 0
         save(product);
-        redisUtils.deleteByPattern("cache:product:list:*");
+        redisUtils.deleteByPattern(CACHE_PRODUCT_LIST_PATTERN);
         return product.getId();
     }
 
@@ -136,7 +139,7 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
         product.setAuditStatus(0); // 待审核
         product.setSales(0);
         save(product);
-        redisUtils.deleteByPattern("cache:product:list:*");
+        redisUtils.deleteByPattern(CACHE_PRODUCT_LIST_PATTERN);
     }
 
     @Override
@@ -171,8 +174,8 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
         }
         product.setAuditStatus(0); // 重新审核
         updateById(product);
-        redisUtils.delete("cache:product:detail:" + request.getId());
-        redisUtils.deleteByPattern("cache:product:list:*");
+        redisUtils.delete(CACHE_PRODUCT_DETAIL_PREFIX + request.getId());
+        redisUtils.deleteByPattern(CACHE_PRODUCT_LIST_PATTERN);
         redisUtils.deleteByPattern("cache:product:reviews:" + request.getId());
     }
 
@@ -187,8 +190,8 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
         }
         product.setStatus(request.getStatus());
         updateById(product);
-        redisUtils.delete("cache:product:detail:" + request.getId());
-        redisUtils.deleteByPattern("cache:product:list:*");
+        redisUtils.delete(CACHE_PRODUCT_DETAIL_PREFIX + request.getId());
+        redisUtils.deleteByPattern(CACHE_PRODUCT_LIST_PATTERN);
     }
 
     @ReadOnly
@@ -236,8 +239,8 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
         }
         product.setAuditStatus(request.getStatus());
         updateById(product);
-        redisUtils.delete("cache:product:detail:" + request.getId());
-        redisUtils.deleteByPattern("cache:product:list:*");
+        redisUtils.delete(CACHE_PRODUCT_DETAIL_PREFIX + request.getId());
+        redisUtils.deleteByPattern(CACHE_PRODUCT_LIST_PATTERN);
     }
 
     @ReadOnly
@@ -250,7 +253,7 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
         String cacheKey = "cache:product:reviews:" + productId;
         return redisUtils.getOrLoad(cacheKey, new TypeReference<>() {}, 5, () -> {
             QueryWrapper<ProductReview> queryWrapper = new QueryWrapper<>();
-            queryWrapper.eq("product_id", productId).orderByDesc("create_time");
+            queryWrapper.eq("product_id", productId).orderByDesc("create_time").last("LIMIT 50");
             List<ProductReview> reviews = productReviewMapper.selectList(queryWrapper);
 
             if (reviews == null || reviews.isEmpty()) {

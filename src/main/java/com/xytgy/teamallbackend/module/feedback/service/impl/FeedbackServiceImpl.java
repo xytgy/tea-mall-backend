@@ -10,7 +10,7 @@ import com.xytgy.teamallbackend.common.ResultCode;
 import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.module.feedback.dto.FeedbackSubmitRequest;
 import com.xytgy.teamallbackend.module.feedback.entity.Feedback;
-import com.xytgy.teamallbackend.module.feedback.repository.FeedbackMapper;
+import com.xytgy.teamallbackend.module.feedback.mapper.FeedbackMapper;
 import com.xytgy.teamallbackend.module.feedback.service.FeedbackService;
 import com.xytgy.teamallbackend.module.feedback.vo.FeedbackVO;
 import lombok.RequiredArgsConstructor;
@@ -22,7 +22,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -76,7 +75,9 @@ public class FeedbackServiceImpl extends ServiceImpl<FeedbackMapper, Feedback> i
             if (StringUtils.hasText(f.getImages()) && !f.getImages().equals("[]")) {
                 try {
                     imageList = objectMapper.readValue(f.getImages(), new TypeReference<List<String>>() {});
-                } catch (JsonProcessingException ignored) {}
+                } catch (JsonProcessingException ignored) {
+                    // intentionally empty
+                }
             }
             
             return FeedbackVO.builder()

@@ -7,7 +7,7 @@ import com.xytgy.teamallbackend.module.user.dto.LoginRequest;
 import com.xytgy.teamallbackend.module.user.dto.RegisterRequest;
 import com.xytgy.teamallbackend.module.user.vo.LoginResponse;
 import com.xytgy.teamallbackend.module.user.service.UserService;
-import com.xytgy.teamallbackend.utils.RateLimitService;
+import com.xytgy.teamallbackend.ratelimit.RateLimitService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
@@ -45,7 +45,12 @@ public class AuthController {
 
     @PostMapping("/register")
     @Operation(summary = "注册接口")
-    public Result<Void> register(@Valid @RequestBody RegisterRequest request) {
+    public Result<Void> register(@Valid @RequestBody RegisterRequest request,
+                                  HttpServletRequest httpRequest) {
+        String clientIp = getClientIp(httpRequest);
+        if (!rateLimitService.checkIpRate(clientIp)) {
+            throw new ServiceException(ResultCode.TOO_MANY_REQUESTS, "当前网络请求过于频繁，请稍后再试");
+        }
         userService.register(request);
         return Result.success("注册成功", null);
     }

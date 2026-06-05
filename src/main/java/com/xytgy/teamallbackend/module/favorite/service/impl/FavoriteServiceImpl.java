@@ -7,7 +7,7 @@ import com.xytgy.teamallbackend.common.ResultCode;
 import com.xytgy.teamallbackend.common.mapstruct.CopyMapper;
 import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.module.favorite.entity.Favorite;
-import com.xytgy.teamallbackend.module.favorite.repository.FavoriteMapper;
+import com.xytgy.teamallbackend.module.favorite.mapper.FavoriteMapper;
 import com.xytgy.teamallbackend.module.favorite.service.FavoriteService;
 import com.xytgy.teamallbackend.module.favorite.vo.FavoriteItemVO;
 import com.xytgy.teamallbackend.module.product.entity.Product;
