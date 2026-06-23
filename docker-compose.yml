@@ -1,19 +1,35 @@
 services:
   rocketmq-namesrv:
     image: apache/rocketmq:5.3.0
+    platform: linux/amd64
     container_name: rocketmq-namesrv
-    command: sh mqnamesrv
+    command: nameserver
     ports:
       - "9876:9876"
     environment:
       JAVA_OPT_EXT: "-Xms256m -Xmx256m"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/9876' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     networks:
       - rocketmq
+    restart: unless-stopped
 
+  # ======================== Broker 主节点 ========================
   rocketmq-broker:
     image: apache/rocketmq:5.3.0
+    platform: linux/amd64
     container_name: rocketmq-broker
-    command: sh mqbroker -n rocketmq-namesrv:9876 -c /opt/rocketmq/conf/broker.conf
+    user: root
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        chown -R rocketmq:rocketmq /home/rocketmq/store /home/rocketmq/logs
+        cd /home/rocketmq/rocketmq-5.3.0/bin
+        exec runuser -u rocketmq -- ./docker-entrypoint.sh broker -n rocketmq-namesrv:9876 -c /home/rocketmq/rocketmq-5.3.0/conf/broker.conf
     ports:
       - "10911:10911"
       - "10909:10909"
@@ -21,11 +37,64 @@ services:
       JAVA_OPT_EXT: "-Xms256m -Xmx256m"
       NAMESRV_ADDR: "rocketmq-namesrv:9876"
     depends_on:
-      - rocketmq-namesrv
+      rocketmq-namesrv:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/10911' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
     volumes:
-      - ./docker/rocketmq/broker.conf:/opt/rocketmq/conf/broker.conf
+      - ./docker/rocketmq/broker.conf:/home/rocketmq/rocketmq-5.3.0/conf/broker.conf
+      - rocketmq-broker-data:/home/rocketmq/store
+      - rocketmq-broker-logs:/home/rocketmq/logs
     networks:
       - rocketmq
+    restart: unless-stopped
+
+  # ======================== Broker 从节点 ========================
+  rocketmq-broker-slave:
+    image: apache/rocketmq:5.3.0
+    platform: linux/amd64
+    container_name: rocketmq-broker-slave
+    user: root
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        chown -R rocketmq:rocketmq /home/rocketmq/store /home/rocketmq/logs
+        cd /home/rocketmq/rocketmq-5.3.0/bin
+        exec runuser -u rocketmq -- ./docker-entrypoint.sh broker -n rocketmq-namesrv:9876 -c /home/rocketmq/rocketmq-5.3.0/conf/broker-slave.conf
+    ports:
+      - "10811:10911"
+      - "10809:10909"
+    environment:
+      JAVA_OPT_EXT: "-Xms256m -Xmx256m"
+      NAMESRV_ADDR: "rocketmq-namesrv:9876"
+    depends_on:
+      rocketmq-namesrv:
+        condition: service_healthy
+      rocketmq-broker:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/10911' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    volumes:
+      - ./docker/rocketmq/broker-slave.conf:/home/rocketmq/rocketmq-5.3.0/conf/broker-slave.conf
+      - rocketmq-slave-data:/home/rocketmq/store
+      - rocketmq-slave-logs:/home/rocketmq/logs
+    networks:
+      - rocketmq
+    restart: unless-stopped
+
+volumes:
+  rocketmq-broker-data:
+  rocketmq-broker-logs:
+  rocketmq-slave-data:
+  rocketmq-slave-logs:
 
 networks:
   rocketmq:

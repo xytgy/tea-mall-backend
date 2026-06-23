@@ -1,0 +1,17 @@
+rate-limit:
+  enabled: true
+  capacity: 100
+  rate: 50
+
+browser-cache:
+  enabled: true
+
+mock-pay:
+  enabled: false
+
+docs:
+  enabled: false
+
+knife4j:
+  enable: false
+
