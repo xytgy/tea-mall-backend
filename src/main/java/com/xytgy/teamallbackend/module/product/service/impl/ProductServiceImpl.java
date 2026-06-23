@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.xytgy.teamallbackend.cache.bloom.event.ProductCreatedEvent;
 import com.xytgy.teamallbackend.common.PageResult;
 import com.xytgy.teamallbackend.common.ResultCode;
 import com.xytgy.teamallbackend.common.mapstruct.CopyMapper;
@@ -21,16 +22,22 @@ import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.module.product.mapper.ProductMapper;
 import com.xytgy.teamallbackend.module.product.service.ProductService;
 import com.xytgy.teamallbackend.module.user.service.UserService;
-import com.xytgy.teamallbackend.utils.RedisUtils;
+import com.xytgy.teamallbackend.cache.facade.RedisUtils;
 import com.xytgy.teamallbackend.module.product.vo.AuditVO;
 import com.xytgy.teamallbackend.module.product.vo.ProductVO;
 import com.xytgy.teamallbackend.module.product.vo.ProductReviewVO;
 import com.xytgy.teamallbackend.module.shop.service.ShopService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.format.DateTimeFormatter;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -57,13 +64,41 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
 
     private final RedisUtils redisUtils;
 
-    private static final String CACHE_PRODUCT_LIST_PATTERN = "cache:product:list:*";
+    private final ApplicationEventPublisher eventPublisher;
+
     private static final String CACHE_PRODUCT_DETAIL_PREFIX = "cache:product:detail:";
+    private static final String CACHE_PRODUCT_REVIEWS_PREFIX = "cache:product:reviews:";
+    private static final String CACHE_PRODUCT_LIST_VERSION_KEY = "cache:product:list:version";
+
+    /**
+     * 获取包含当前版本号的商品列表缓存前缀。
+     * 版本号变更后，旧版本 Key 自动失效并等待 TTL 回收。
+     */
+    private String currentListCachePrefix() {
+        return redisUtils.versionedKey(
+                "cache:product:list:", CACHE_PRODUCT_LIST_VERSION_KEY, "");
+    }
+
+    /**
+     * 使商品列表缓存失效：仅递增版本号（O(1)），旧缓存自然过期。
+     * 替代原先的 deleteByPattern SCAN 操作，避免大面积缓存失效导致的 DB 压力飙升。
+     */
+    private void invalidateProductListCaches() {
+        redisUtils.invalidateVersion(CACHE_PRODUCT_LIST_VERSION_KEY);
+    }
+
+    /**
+     * 使单个商品的详情缓存和评论缓存失效（精确删除）。
+     */
+    private void invalidateProductCaches(Long productId) {
+        redisUtils.delete(CACHE_PRODUCT_DETAIL_PREFIX + productId);
+        redisUtils.delete(CACHE_PRODUCT_REVIEWS_PREFIX + productId);
+    }
 
     @ReadOnly
     @Override
     public PageResult<ProductVO> listAvailableProducts(int page, int pageSize) {
-        String cacheKey = "cache:product:list:" + page + ":" + pageSize;
+        String cacheKey = currentListCachePrefix() + page + ":" + pageSize;
         return redisUtils.getOrLoad(cacheKey, new TypeReference<>() {}, 5, () -> {
             Page<Product> pageResult = lambdaQuery()
                     .eq(Product::getStatus, 1)
@@ -80,7 +115,28 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
         });
     }
 
+    @ReadOnly
     @Override
+    public ProductVO getProductDetail(Long productId) {
+        if (productId == null) {
+            throw new ServiceException(ResultCode.BAD_REQUEST, "商品ID不能为空");
+        }
+
+        String cacheKey = CACHE_PRODUCT_DETAIL_PREFIX + productId;
+        return redisUtils.getOrLoad(cacheKey, new TypeReference<>() {}, 10, () -> {
+            Product product = getById(productId);
+            if (product == null) {
+                throw new ServiceException(ResultCode.NOT_FOUND, "商品不存在");
+            }
+            if (product.getStatus() != 1 || product.getAuditStatus() != 1) {
+                throw new ServiceException(ResultCode.NOT_FOUND, "商品已下架或未审核");
+            }
+            return toVO(product);
+        });
+    }
+
+    @Override
+    @Transactional
     public Long addMerchantGoods(Long merchantId, MerchantGoodsAddRequest request) {
         if (request == null
                 || !StringUtils.hasText(request.getName())
@@ -104,7 +160,8 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
         product.setMerchantId(merchantId);
         // 数据库无 sales 字段时依赖表默认值；有字段时建议 default 0
         save(product);
-        redisUtils.deleteByPattern(CACHE_PRODUCT_LIST_PATTERN);
+        eventPublisher.publishEvent(new ProductCreatedEvent(product.getId()));
+        invalidateProductListCaches();
         return product.getId();
     }
 
@@ -127,6 +184,7 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
     }
 
     @Override
+    @Transactional
     public void addProduct(Long merchantId, ProductAddRequest request) {
         if (request == null || !StringUtils.hasText(request.getName())
                 || request.getPrice() == null || request.getStock() == null
@@ -139,10 +197,12 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
         product.setAuditStatus(0); // 待审核
         product.setSales(0);
         save(product);
-        redisUtils.deleteByPattern(CACHE_PRODUCT_LIST_PATTERN);
+        eventPublisher.publishEvent(new ProductCreatedEvent(product.getId()));
+        invalidateProductListCaches();
     }
 
     @Override
+    @Transactional
     public void updateProduct(Long merchantId, ProductUpdateRequest request) {
         if (request == null || request.getId() == null) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "参数不完整");
@@ -174,12 +234,12 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
         }
         product.setAuditStatus(0); // 重新审核
         updateById(product);
-        redisUtils.delete(CACHE_PRODUCT_DETAIL_PREFIX + request.getId());
-        redisUtils.deleteByPattern(CACHE_PRODUCT_LIST_PATTERN);
-        redisUtils.deleteByPattern("cache:product:reviews:" + request.getId());
+        invalidateProductCaches(request.getId());
+        invalidateProductListCaches();
     }
 
     @Override
+    @Transactional
     public void updateProductStatus(Long merchantId, ProductStatusRequest request) {
         if (request == null || request.getId() == null || request.getStatus() == null) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "参数不完整");
@@ -190,8 +250,8 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
         }
         product.setStatus(request.getStatus());
         updateById(product);
-        redisUtils.delete(CACHE_PRODUCT_DETAIL_PREFIX + request.getId());
-        redisUtils.deleteByPattern(CACHE_PRODUCT_LIST_PATTERN);
+        invalidateProductCaches(request.getId());
+        invalidateProductListCaches();
     }
 
     @ReadOnly
@@ -229,6 +289,7 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
     }
 
     @Override
+    @Transactional
     public void auditProduct(ProductAuditRequest request) {
         if (request == null || request.getId() == null || request.getStatus() == null) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "参数不完整");
@@ -239,8 +300,8 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
         }
         product.setAuditStatus(request.getStatus());
         updateById(product);
-        redisUtils.delete(CACHE_PRODUCT_DETAIL_PREFIX + request.getId());
-        redisUtils.deleteByPattern(CACHE_PRODUCT_LIST_PATTERN);
+        invalidateProductCaches(request.getId());
+        invalidateProductListCaches();
     }
 
     @ReadOnly
@@ -283,6 +344,53 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product>
         vo.setSales(product.getSales() == null ? 0 : product.getSales());
         return vo;
     }
+
+    @ReadOnly
+    @Override
+    public PageResult<ProductVO> listProducts(int page, int pageSize, String keyword, String category, String sort) {
+        String searchHash = md5Hex((keyword == null ? "" : keyword) + ":"
+                + (category == null ? "" : category) + ":"
+                + (sort == null ? "" : sort));
+        String cacheKey = currentListCachePrefix() + page + ":" + pageSize + ":" + searchHash;
+
+        return redisUtils.getOrLoad(cacheKey, new TypeReference<>() {}, 5, () -> {
+            var query = lambdaQuery()
+                    .eq(Product::getStatus, 1)
+                    .eq(Product::getAuditStatus, 1)
+                    .gt(Product::getStock, 0);
+
+            if (StringUtils.hasText(keyword)) {
+                query.like(Product::getName, keyword);
+            }
+            if (StringUtils.hasText(category)) {
+                query.eq(Product::getCategory, category);
+            }
+
+            switch (sort) {
+                case "sales" -> query.orderByDesc(Product::getSales);
+                case "price_asc" -> query.orderByAsc(Product::getPrice);
+                case "price_desc" -> query.orderByDesc(Product::getPrice);
+                default -> query.orderByDesc(Product::getCreateTime);
+            }
+
+            Page<Product> pageResult = query.page(new Page<>(page, pageSize));
+
+            List<ProductVO> voList = pageResult.getRecords().stream()
+                    .map(this::toVO)
+                    .toList();
+
+            return new PageResult<>(voList, pageResult.getTotal(), page, pageSize);
+        });
+    }
+
+    private static String md5Hex(String input) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("MD5");
+            byte[] digest = md.digest(input.getBytes(StandardCharsets.UTF_8));
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(digest);
+        } catch (NoSuchAlgorithmException e) {
+            // MD5 is guaranteed to be available in every JDK
+            throw new IllegalStateException(e);
+        }
+    }
 }
-
-

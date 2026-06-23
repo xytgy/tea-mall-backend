@@ -6,6 +6,7 @@ import com.xytgy.teamallbackend.security.SecurityUtils;
 import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.module.chat.dto.ChatReadRequest;
 import com.xytgy.teamallbackend.module.chat.dto.MerchantChatReadRequest;
+import com.xytgy.teamallbackend.module.chat.dto.MerchantChatSendRequest;
 import com.xytgy.teamallbackend.module.chat.service.ChatService;
 import com.xytgy.teamallbackend.module.chat.vo.ChatMessageVO;
 import com.xytgy.teamallbackend.module.chat.vo.ChatSessionVO;
@@ -92,6 +93,19 @@ public class ChatController {
         }
         chatService.markAsRead(request.getBuyerId(), merchantId, merchantId);
         return Result.success(null);
+    }
+
+    @PreAuthorize("hasRole('MERCHANT')")
+    @PostMapping("/merchant/send")
+    @Operation(summary = "【商家端】发送消息给买家")
+    public Result<ChatMessageVO> merchantSendMessage(@Validated @RequestBody MerchantChatSendRequest request) {
+        Long merchantId = currentUserId();
+        Long shopId = shopService.getShopIdByUserId(merchantId);
+        if (shopId != null) {
+            merchantId = shopId;
+        }
+        ChatMessageVO message = chatService.saveMessage(merchantId, request.getReceiverId(), request.getContent(), request.getMsgType());
+        return Result.success(message);
     }
 
     private Long currentUserId() {

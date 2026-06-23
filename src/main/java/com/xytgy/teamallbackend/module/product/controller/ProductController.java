@@ -3,6 +3,9 @@ package com.xytgy.teamallbackend.module.product.controller;
 import com.xytgy.teamallbackend.common.BaseController;
 import com.xytgy.teamallbackend.common.PageResult;
 import com.xytgy.teamallbackend.common.Result;
+import com.xytgy.teamallbackend.annotation.BrowserCache;
+import com.xytgy.teamallbackend.annotation.CacheStrategy;
+import com.xytgy.teamallbackend.module.product.cache.ProductLastModifiedProvider;
 import com.xytgy.teamallbackend.module.product.dto.ProductAddRequest;
 import com.xytgy.teamallbackend.module.product.dto.ProductAuditRequest;
 import com.xytgy.teamallbackend.module.product.dto.ProductStatusRequest;
@@ -45,8 +48,21 @@ public class ProductController extends BaseController {
     @ApiResponse(responseCode = "401", description = "未登录")
     public Result<PageResult<ProductVO>> list(
             @RequestParam(value = "page", defaultValue = "1") int page,
-            @RequestParam(value = "pageSize", defaultValue = "10") int pageSize) {
-        return Result.success(productService.listAvailableProducts(page, pageSize));
+            @RequestParam(value = "pageSize", defaultValue = "10") int pageSize,
+            @RequestParam(value = "keyword", required = false) String keyword,
+            @RequestParam(value = "category", required = false) String category,
+            @RequestParam(value = "sort", defaultValue = "default") String sort) {
+        return Result.success(productService.listProducts(page, pageSize, keyword, category, sort));
+    }
+
+    @GetMapping("/{id}")
+    @Operation(summary = "商品详情", description = "根据商品ID获取商品详情")
+    @BrowserCache(
+            strategy = CacheStrategy.PRODUCT_DETAIL,
+            lastModifiedProvider = ProductLastModifiedProvider.class
+    )
+    public Result<ProductVO> detail(@PathVariable("id") Long id) {
+        return Result.success(productService.getProductDetail(id));
     }
 
     @PreAuthorize("hasRole('MERCHANT')")

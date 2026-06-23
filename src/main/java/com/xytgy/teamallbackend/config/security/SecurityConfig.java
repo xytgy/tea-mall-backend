@@ -11,6 +11,9 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.header.writers.XXssProtectionHeaderWriter;
+import java.util.function.Consumer;
+import org.springframework.security.config.Customizer;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -65,7 +68,16 @@ public class SecurityConfig {
                     auth.anyRequest().authenticated();
                 })
                 // 将 JWT 过滤器插入到 UsernamePasswordAuthenticationFilter 之前
-                .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
+                .headers(headers -> headers
+                        .httpStrictTransportSecurity(hsts -> hsts
+                                .includeSubDomains(true)
+                                .maxAgeInSeconds(31536000))
+                        .contentTypeOptions(Customizer.withDefaults())
+                        .frameOptions(frame -> frame.deny())
+                        .xssProtection(xss -> xss.headerValue(XXssProtectionHeaderWriter.HeaderValue.ENABLED_MODE_BLOCK))
+                        .contentSecurityPolicy(csp -> csp.policyDirectives("default-src 'self'; frame-ancestors 'none'"))
+                );
 
         return http.build();
     }

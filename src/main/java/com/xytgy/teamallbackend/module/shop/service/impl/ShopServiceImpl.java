@@ -1,7 +1,9 @@
 package com.xytgy.teamallbackend.module.shop.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.xytgy.teamallbackend.common.PageResult;
 import com.xytgy.teamallbackend.common.ResultCode;
 import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.module.shop.dto.ShopRegisterRequest;
@@ -10,7 +12,6 @@ import com.xytgy.teamallbackend.module.shop.entity.Shop;
 import com.xytgy.teamallbackend.module.shop.mapper.ShopMapper;
 import com.xytgy.teamallbackend.module.shop.service.ShopService;
 import com.xytgy.teamallbackend.module.shop.vo.ShopVO;
-import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -65,7 +66,12 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements Sh
         }
 
         ShopVO vo = new ShopVO();
-        BeanUtils.copyProperties(shop, vo);
+        vo.setId(shop.getId());
+        vo.setUserId(shop.getUserId());
+        vo.setName(shop.getShopName());
+        vo.setBusinessLicense(shop.getBusinessLicense());
+        vo.setCreateTime(shop.getCreateTime());
+        vo.setUpdateTime(shop.getUpdateTime());
         return vo;
     }
 
@@ -100,9 +106,38 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements Sh
             throw new ServiceException(ResultCode.NOT_FOUND, "店铺不存在");
         }
         ShopVO vo = new ShopVO();
-        BeanUtils.copyProperties(shop, vo);
-        // 这里可以做一些脱敏处理，比如隐藏某些隐私字段
+        vo.setId(shop.getId());
+        vo.setUserId(shop.getUserId());
+        vo.setName(shop.getShopName());
+        vo.setBusinessLicense(shop.getBusinessLicense());
+        vo.setCreateTime(shop.getCreateTime());
+        vo.setUpdateTime(shop.getUpdateTime());
         return vo;
+    }
+
+    @Override
+    public PageResult<ShopVO> listShops(int page, int pageSize, String keyword) {
+        LambdaQueryWrapper<Shop> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(Shop::getIsDeleted, 0);
+        if (keyword != null && !keyword.isBlank()) {
+            queryWrapper.like(Shop::getShopName, keyword);
+        }
+        queryWrapper.orderByDesc(Shop::getCreateTime);
+
+        Page<Shop> pageResult = this.page(new Page<>(page, pageSize), queryWrapper);
+
+        java.util.List<ShopVO> voList = pageResult.getRecords().stream().map(shop -> {
+            ShopVO vo = new ShopVO();
+            vo.setId(shop.getId());
+            vo.setUserId(shop.getUserId());
+            vo.setName(shop.getShopName());
+            vo.setBusinessLicense(shop.getBusinessLicense());
+            vo.setCreateTime(shop.getCreateTime());
+            vo.setUpdateTime(shop.getUpdateTime());
+            return vo;
+        }).toList();
+
+        return new PageResult<>(voList, pageResult.getTotal(), page, pageSize);
     }
 }
 

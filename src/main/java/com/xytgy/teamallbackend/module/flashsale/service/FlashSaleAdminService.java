@@ -3,9 +3,10 @@ package com.xytgy.teamallbackend.module.flashsale.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.xytgy.teamallbackend.common.ResultCode;
-import com.xytgy.teamallbackend.mq.config.FlashSaleCacheManager;
 import com.xytgy.teamallbackend.mq.constant.MqConstants;
-import com.xytgy.teamallbackend.mq.producer.MqProducer;
+import com.xytgy.teamallbackend.mq.config.FlashSaleCacheManager;
+import com.xytgy.teamallbackend.mq.message.flashsale.FlashOrderCreateMessage;
+import com.xytgy.teamallbackend.mq.publisher.FlashOrderPublisher;
 import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.module.flashsale.entity.FlashSale;
 import com.xytgy.teamallbackend.module.flashsale.entity.FlashSaleAuditLog;
@@ -53,7 +54,7 @@ public class FlashSaleAdminService {
     private final FlashSaleAuditLogMapper flashSaleAuditLogMapper;
     private final ProductMapper productMapper;
     private final OrdersMapper ordersMapper;
-    private final MqProducer mqProducer;
+    private final FlashOrderPublisher flashOrderPublisher;
     private final FlashSaleRateLimiter rateLimiter;
     private final FlashSaleFailedOrderMapper failedOrderMapper;
     private final FlashSaleCompensationMapper compensationMapper;
@@ -105,12 +106,12 @@ public class FlashSaleAdminService {
             return result;
         }
 
-        Set<String> keys = stringRedisTemplate.keys(FLASH_PENDING_PREFIX + userId + ":*");
+        Set<String> keys = stringRedisTemplate.keys(FLASH_PENDING_PREFIX + "*:" + userId + ":*");
         if (keys != null && !keys.isEmpty()) {
             for (String key : keys) {
-                String pendingOrderId = stringRedisTemplate.opsForValue().get(key);
-                if (pendingOrderId != null) {
-                    result.put("orderId", Long.parseLong(pendingOrderId));
+                String pendingTransactionId = stringRedisTemplate.opsForValue().get(key);
+                if (pendingTransactionId != null) {
+                    result.put("transactionId", pendingTransactionId);
                     result.put("status", "PENDING");
                     result.put(FIELD_MESSAGE, "订单处理中");
                     return result;
@@ -172,13 +173,16 @@ public class FlashSaleAdminService {
         }
 
         // 重新发送 MQ 消息
-        Map<String, Object> payload = Map.of(
-                "transactionId", failedOrder.getTransactionId(),
-                "flashSaleId", failedOrder.getFlashSaleId(),
-                "productId", failedOrder.getProductId(),
-                "userId", failedOrder.getUserId());
-        mqProducer.send(MqConstants.TOPIC_FLASH_ORDER, MqConstants.TAG_FLASH_ORDER,
-                failedOrder.getTransactionId(), payload);
+        FlashOrderCreateMessage message = FlashOrderCreateMessage.builder()
+                .transactionId(failedOrder.getTransactionId())
+                .flashSaleId(failedOrder.getFlashSaleId())
+                .productId(failedOrder.getProductId())
+                .userId(failedOrder.getUserId())
+                .flashPrice(resolveFlashPrice(failedOrder))
+                .build();
+        if (!flashOrderPublisher.publishCreateOrder(message)) {
+            throw new ServiceException(ResultCode.ERROR, "RocketMQ 不可用，无法重试失败订单");
+        }
 
         failedOrder.setStatus(1);
         failedOrder.setRetryCount(failedOrder.getRetryCount() + 1);
@@ -355,6 +359,19 @@ public class FlashSaleAdminService {
             case 4 -> "已取消";
             default -> "未知状态";
         };
+    }
+
+    private BigDecimal resolveFlashPrice(FlashSaleFailedOrder failedOrder) {
+        FlashSaleProduct flashSaleProduct = flashSaleProductMapper.selectOne(
+                new LambdaQueryWrapper<FlashSaleProduct>()
+                        .eq(FlashSaleProduct::getFlashSaleId, failedOrder.getFlashSaleId())
+                        .eq(FlashSaleProduct::getProductId, failedOrder.getProductId())
+                        .last("LIMIT 1")
+        );
+        if (flashSaleProduct == null || flashSaleProduct.getFlashPrice() == null) {
+            throw new ServiceException(ResultCode.ERROR, "无法恢复失败订单的秒杀价格");
+        }
+        return flashSaleProduct.getFlashPrice();
     }
 
     private FlashSaleBuyResult fail(String message) {

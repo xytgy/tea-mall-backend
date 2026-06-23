@@ -21,6 +21,7 @@ import java.util.List;
 */
 public interface ProductService extends IService<Product> {
     PageResult<ProductVO> listAvailableProducts(int page, int pageSize);
+    ProductVO getProductDetail(Long productId);
     Long addMerchantGoods(Long merchantId, MerchantGoodsAddRequest request);
     PageResult<ProductVO> listMerchantProducts(Long merchantId, int page, int pageSize);
     void addProduct(Long merchantId, ProductAddRequest request);
@@ -28,5 +29,6 @@ public interface ProductService extends IService<Product> {
     void updateProductStatus(Long merchantId, ProductStatusRequest request);
     List<AuditVO> listPendingAuditProducts();
     void auditProduct(ProductAuditRequest request);
+    PageResult<ProductVO> listProducts(int page, int pageSize, String keyword, String category, String sort);
     List<ProductReviewVO> listProductReviews(Long productId);
 }

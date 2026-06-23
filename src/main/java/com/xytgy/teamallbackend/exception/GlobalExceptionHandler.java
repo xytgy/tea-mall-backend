@@ -2,6 +2,7 @@ package com.xytgy.teamallbackend.exception;
 
 import com.xytgy.teamallbackend.common.ResultCode;
 import com.xytgy.teamallbackend.common.Result;
+import com.xytgy.teamallbackend.lock.LockAcquisitionException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
@@ -21,6 +22,12 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(value = ServiceException.class)
     public Result<?> handleServiceException(ServiceException e) {
         return Result.error(e.getCode(), e.getMessage());
+    }
+
+    @ExceptionHandler(LockAcquisitionException.class)
+    @ResponseStatus(HttpStatus.TOO_MANY_REQUESTS)
+    public Result<?> handleLockAcquisition(LockAcquisitionException e) {
+        return Result.error(ResultCode.TOO_MANY_REQUESTS.getCode(), e.getMessage());
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -52,8 +59,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(value = Exception.class)
     public Result<?> handleException(Exception e) {
-        // 生产环境仅记录异常类名和消息，不记录完整堆栈，避免泄露内部实现细节
-        log.error("系统异常 [{}]: {}", e.getClass().getSimpleName(), e.getMessage());
+        log.error("系统异常 [{}]: {}", e.getClass().getSimpleName(), e.getMessage(), e);
         return Result.error(ResultCode.ERROR);
     }
 }

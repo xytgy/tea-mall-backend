@@ -15,8 +15,9 @@ import com.xytgy.teamallbackend.module.teacircle.service.TeaPostService;
 import com.xytgy.teamallbackend.module.teacircle.vo.TeaCommentVO;
 import com.xytgy.teamallbackend.module.user.entity.User;
 import com.xytgy.teamallbackend.module.user.service.UserService;
-import com.xytgy.teamallbackend.mq.constant.MqConstants;
-import com.xytgy.teamallbackend.mq.producer.MqProducer;
+import com.xytgy.teamallbackend.mq.message.teacircle.TeaNotificationMessage;
+import com.xytgy.teamallbackend.mq.publisher.TeaNotificationPublisher;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,6 +31,7 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 public class TeaCommentServiceImpl extends ServiceImpl<TeaCommentMapper, TeaComment> implements TeaCommentService {
 
@@ -37,14 +39,14 @@ public class TeaCommentServiceImpl extends ServiceImpl<TeaCommentMapper, TeaComm
 
     private final TeaPostService teaPostService;
 
-    private final MqProducer mqProducer;
+    private final TeaNotificationPublisher teaNotificationPublisher;
 
     private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-    public TeaCommentServiceImpl(TeaPostService teaPostService, UserService userService, MqProducer mqProducer) {
+    public TeaCommentServiceImpl(TeaPostService teaPostService, UserService userService, TeaNotificationPublisher teaNotificationPublisher) {
         this.teaPostService = teaPostService;
         this.userService = userService;
-        this.mqProducer = mqProducer;
+        this.teaNotificationPublisher = teaNotificationPublisher;
     }
 
     @Override
@@ -72,14 +74,17 @@ public class TeaCommentServiceImpl extends ServiceImpl<TeaCommentMapper, TeaComm
         // 通过 MQ 异步创建通知，降低核心评论链路耦合
         Long notifyUserId = request.getReplyToUserId() != null ? request.getReplyToUserId() : post.getUserId();
         if (!userId.equals(notifyUserId)) {
-            Map<String, Object> notifyMsg = Map.of(
-                    "targetUserId", notifyUserId,
-                    "type", "comment",
-                    "sourceId", comment.getId(),
-                    "actorId", userId
+            boolean published = teaNotificationPublisher.publishCommentNotification(
+                    TeaNotificationMessage.builder()
+                            .targetUserId(notifyUserId)
+                            .type("comment")
+                            .sourceId(comment.getId())
+                            .actorId(userId)
+                            .build()
             );
-            mqProducer.send(MqConstants.TOPIC_TEA_NOTIFICATION, MqConstants.TAG_COMMENT,
-                    String.valueOf(comment.getId()), notifyMsg);
+            if (!published) {
+                log.warn("RocketMQ 不可用，消息未发送");
+            }
         }
 
         Set<Long> userIds = new HashSet<>();

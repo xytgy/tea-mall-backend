@@ -2,7 +2,7 @@
 <!DOCTYPE mapper
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.xytgy.teamallbackend.module.order.repository.OrdersMapper">
+<mapper namespace="com.xytgy.teamallbackend.module.order.mapper.OrdersMapper">
 
     <resultMap id="BaseResultMap" type="com.xytgy.teamallbackend.module.order.entity.Orders">
             <id property="id" column="id" />
@@ -21,4 +21,19 @@
         id,order_no,user_id,total_amount,status,receiver_name,
         receiver_phone,receiver_address,create_time,pay_time
     </sql>
+
+    <!-- 商家订单分页：通过 SQL 子查询在数据库层面完成商品ID->订单ID的关联过滤，
+         避免全量加载 order_item 到应用内存 -->
+    <select id="selectMerchantOrderPage" resultMap="BaseResultMap">
+        SELECT o.*
+        FROM orders o
+        WHERE o.id IN (
+            SELECT DISTINCT oi.order_id
+            FROM order_item oi
+            WHERE oi.product_id IN (
+                SELECT p.id FROM product p WHERE p.merchant_id = #{merchantId}
+            )
+        )
+        ORDER BY o.create_time DESC
+    </select>
 </mapper>

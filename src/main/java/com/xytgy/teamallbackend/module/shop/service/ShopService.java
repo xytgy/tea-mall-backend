@@ -1,6 +1,7 @@
 package com.xytgy.teamallbackend.module.shop.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
+import com.xytgy.teamallbackend.common.PageResult;
 import com.xytgy.teamallbackend.module.shop.dto.ShopRegisterRequest;
 import com.xytgy.teamallbackend.module.shop.dto.ShopUpdateRequest;
 import com.xytgy.teamallbackend.module.shop.entity.Shop;
@@ -32,5 +33,7 @@ public interface ShopService extends IService<Shop> {
      * 根据店铺ID获取公开店铺信息
      */
     ShopVO getShopById(Long shopId);
+
+    PageResult<ShopVO> listShops(int page, int pageSize, String keyword);
 }
 

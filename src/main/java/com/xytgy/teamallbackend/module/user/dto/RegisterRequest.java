@@ -9,9 +9,12 @@ import lombok.Data;
 public class RegisterRequest {
     @NotBlank(message = "账号不能为空")
     @Size(min = 8, max = 32, message = "账号长度需在8-32之间")
+    @Pattern(regexp = "^\\S+$", message = "账号不能包含空格")
     private String userAccount;
     @NotBlank(message = "密码不能为空")
     @Size(min = 8, max = 32, message = "密码长度需在8-32之间")
+    @Pattern(regexp = "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d).{8,32}$",
+             message = "密码必须包含大小写字母和数字")
     private String password;
     @NotBlank(message = "确认密码不能为空")
     private String confirmPassword;

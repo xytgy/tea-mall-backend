@@ -7,7 +7,7 @@ import com.xytgy.teamallbackend.module.user.service.UserService;
 import com.xytgy.teamallbackend.module.shop.service.ShopService;
 import com.xytgy.teamallbackend.security.JwtAuthenticationToken;
 import com.xytgy.teamallbackend.utils.JwtUtils;
-import com.xytgy.teamallbackend.utils.RedisUtils;
+import com.xytgy.teamallbackend.cache.facade.RedisUtils;
 import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;

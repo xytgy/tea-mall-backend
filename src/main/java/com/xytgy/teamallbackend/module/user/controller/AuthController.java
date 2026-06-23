@@ -8,9 +8,11 @@ import com.xytgy.teamallbackend.module.user.dto.RegisterRequest;
 import com.xytgy.teamallbackend.module.user.vo.LoginResponse;
 import com.xytgy.teamallbackend.module.user.service.UserService;
 import com.xytgy.teamallbackend.ratelimit.RateLimitService;
+import com.xytgy.teamallbackend.utils.RequestUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.validation.annotation.Validated;
@@ -29,13 +31,17 @@ public class AuthController {
     @PostMapping("/login")
     @Operation(summary = "登录接口")
     public Result<LoginResponse> login(@Valid @RequestBody LoginRequest request,
-                                       HttpServletRequest httpRequest) {
+                                       HttpServletRequest httpRequest,
+                                       HttpServletResponse httpResponse) {
         // IP 维度限速，防御分布式密码喷射攻击
-        String clientIp = getClientIp(httpRequest);
-        if (rateLimitService.isIpLocked(clientIp)) {
-            throw new ServiceException(ResultCode.TOO_MANY_REQUESTS, "当前网络已被临时限制访问，请稍后再试");
-        }
-        if (!rateLimitService.checkIpRate(clientIp)) {
+        String clientIp = RequestUtils.getClientIp(httpRequest);
+        long ipResult = rateLimitService.checkIpRate(clientIp);
+        setRateLimitHeaders(httpResponse, ipResult, rateLimitService.getIpMaxPerMinute());
+
+        if (!RateLimitService.isAllowed(ipResult)) {
+            if (RateLimitService.isLocked(ipResult)) {
+                throw new ServiceException(ResultCode.TOO_MANY_REQUESTS, "当前网络已被临时限制访问，请稍后再试");
+            }
             throw new ServiceException(ResultCode.TOO_MANY_REQUESTS, "当前网络登录请求过于频繁，请稍后再试");
         }
 
@@ -46,9 +52,13 @@ public class AuthController {
     @PostMapping("/register")
     @Operation(summary = "注册接口")
     public Result<Void> register(@Valid @RequestBody RegisterRequest request,
-                                  HttpServletRequest httpRequest) {
-        String clientIp = getClientIp(httpRequest);
-        if (!rateLimitService.checkIpRate(clientIp)) {
+                                  HttpServletRequest httpRequest,
+                                  HttpServletResponse httpResponse) {
+        String clientIp = RequestUtils.getClientIp(httpRequest);
+        long ipRate = rateLimitService.checkIpRate(clientIp);
+        setRateLimitHeaders(httpResponse, ipRate, rateLimitService.getIpMaxPerMinute());
+
+        if (!RateLimitService.isAllowed(ipRate)) {
             throw new ServiceException(ResultCode.TOO_MANY_REQUESTS, "当前网络请求过于频繁，请稍后再试");
         }
         userService.register(request);
@@ -62,19 +72,11 @@ public class AuthController {
         return Result.success("退出成功", null);
     }
 
-    /**
-     * 从请求中提取客户端真实 IP，兼容反向代理场景
-     */
-    private String getClientIp(HttpServletRequest request) {
-        String ip = request.getHeader("X-Forwarded-For");
-        if (ip != null && !ip.isEmpty() && !"unknown".equalsIgnoreCase(ip)) {
-            // X-Forwarded-For 可能包含多个 IP，取第一个（最初客户端）
-            return ip.split(",")[0].trim();
+    private static void setRateLimitHeaders(HttpServletResponse response, long remaining, int limit) {
+        if (remaining >= 0) {
+            response.setHeader("X-RateLimit-Limit", String.valueOf(limit));
+            response.setHeader("X-RateLimit-Remaining", String.valueOf(remaining));
+            response.setHeader("X-RateLimit-Reset", "60");
         }
-        ip = request.getHeader("X-Real-IP");
-        if (ip != null && !ip.isEmpty() && !"unknown".equalsIgnoreCase(ip)) {
-            return ip;
-        }
-        return request.getRemoteAddr();
     }
 }

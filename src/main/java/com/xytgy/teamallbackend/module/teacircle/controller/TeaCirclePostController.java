@@ -7,6 +7,7 @@ import com.xytgy.teamallbackend.module.teacircle.dto.TeaCommentAddRequest;
 import com.xytgy.teamallbackend.module.teacircle.dto.TeaPostAddRequest;
 import com.xytgy.teamallbackend.module.teacircle.service.TeaCommentService;
 import com.xytgy.teamallbackend.module.teacircle.service.TeaPostService;
+import com.xytgy.teamallbackend.module.teacircle.service.CommentLikeService;
 import com.xytgy.teamallbackend.module.teacircle.vo.TeaCommentVO;
 import com.xytgy.teamallbackend.module.teacircle.vo.TeaPostVO;
 import jakarta.validation.Valid;
@@ -27,6 +28,7 @@ public class TeaCirclePostController {
 
     private final TeaPostService teaPostService;
     private final TeaCommentService teaCommentService;
+    private final CommentLikeService commentLikeService;
 
     @PostMapping
     @Operation(summary = "发布动态")
@@ -95,5 +97,12 @@ public class TeaCirclePostController {
                                                         @RequestParam(defaultValue = "1") int page,
                                                         @RequestParam(defaultValue = "10") int pageSize) {
         return Result.success(teaCommentService.listComments(id, page, pageSize));
+    }
+
+    @PostMapping("/comments/{commentId}/like")
+    @Operation(summary = "评论点赞/取消点赞")
+    public Result<Map<String, Boolean>> toggleCommentLike(@PathVariable Long commentId) {
+        Long userId = SecurityUtils.getCurrentUserId();
+        return Result.success(commentLikeService.toggleLike(userId, commentId));
     }
 }

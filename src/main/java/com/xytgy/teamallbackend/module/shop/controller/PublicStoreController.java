@@ -12,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -39,5 +40,14 @@ public class PublicStoreController {
             @org.springframework.web.bind.annotation.RequestParam(value = "page", defaultValue = "1") int page,
             @org.springframework.web.bind.annotation.RequestParam(value = "pageSize", defaultValue = "10") int pageSize) {
         return Result.success(productService.listMerchantProducts(shopId, page, pageSize));
+    }
+
+    @GetMapping("/list")
+    @Operation(summary = "获取公开店铺列表")
+    public Result<PageResult<ShopVO>> listShops(
+            @RequestParam(value = "page", defaultValue = "1") int page,
+            @RequestParam(value = "pageSize", defaultValue = "10") int pageSize,
+            @RequestParam(value = "keyword", required = false) String keyword) {
+        return Result.success(shopService.listShops(page, pageSize, keyword));
     }
 }

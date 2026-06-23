@@ -8,10 +8,11 @@ import com.xytgy.teamallbackend.module.teacircle.entity.TeaTopic;
 import com.xytgy.teamallbackend.module.teacircle.mapper.TeaTopicMapper;
 import com.xytgy.teamallbackend.module.teacircle.service.TeaTopicService;
 import com.xytgy.teamallbackend.module.teacircle.vo.TeaTopicVO;
-import com.xytgy.teamallbackend.utils.RedisUtils;
+import com.xytgy.teamallbackend.cache.facade.RedisUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -23,13 +24,15 @@ public class TeaTopicServiceImpl extends ServiceImpl<TeaTopicMapper, TeaTopic> i
     private final StringRedisTemplate stringRedisTemplate;
 
     private static final String TOPIC_LIST_CACHE_KEY = "cache:topic:list:";
+    private static final String TOPIC_LIST_VERSION_KEY = "cache:topic:list:version";
     private static final String TOPIC_VIEW_KEY = "cache:topic:view:";
     private static final String TOPIC_VIEW_DB_KEY = "db:topic:view:";
 
     @Override
     @SuppressWarnings("unchecked")
     public PageResult<TeaTopicVO> getTopics(int page, int pageSize) {
-        String cacheKey = TOPIC_LIST_CACHE_KEY + page + ":" + pageSize;
+        String cacheKey = redisUtils.versionedKey(
+                TOPIC_LIST_CACHE_KEY, TOPIC_LIST_VERSION_KEY, page + ":" + pageSize);
         return redisUtils.getOrLoad(cacheKey, PageResult.class, 15, () -> {
             Page<TeaTopic> p = new Page<>(page, pageSize);
             this.page(p, new LambdaQueryWrapper<TeaTopic>()
@@ -84,6 +87,7 @@ public class TeaTopicServiceImpl extends ServiceImpl<TeaTopicMapper, TeaTopic> i
     }
 
     @Override
+    @Transactional
     public TeaTopic getOrCreateTopicByName(String name, String title) {
         TeaTopic existing = this.getOne(new LambdaQueryWrapper<TeaTopic>().eq(TeaTopic::getName, name));
         if (existing != null) {
@@ -96,7 +100,7 @@ public class TeaTopicServiceImpl extends ServiceImpl<TeaTopicMapper, TeaTopic> i
         topic.setViewCount(0L);
         topic.setPostCount(0L);
         this.save(topic);
-        redisUtils.deleteByPattern(TOPIC_LIST_CACHE_KEY + "*");
+        redisUtils.invalidateVersion(TOPIC_LIST_VERSION_KEY);
         return topic;
     }
 }

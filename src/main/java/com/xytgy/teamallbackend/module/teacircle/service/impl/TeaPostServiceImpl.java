@@ -23,11 +23,13 @@ import com.xytgy.teamallbackend.module.teacircle.service.TeaTopicService;
 import com.xytgy.teamallbackend.module.teacircle.vo.TeaPostVO;
 import com.xytgy.teamallbackend.module.user.entity.User;
 import com.xytgy.teamallbackend.module.user.service.UserService;
-import com.xytgy.teamallbackend.mq.constant.MqConstants;
-import com.xytgy.teamallbackend.mq.producer.MqProducer;
+import com.xytgy.teamallbackend.mq.message.teacircle.TeaNotificationMessage;
+import com.xytgy.teamallbackend.mq.publisher.TeaNotificationPublisher;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,6 +39,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 public class TeaPostServiceImpl extends ServiceImpl<TeaPostMapper, TeaPost> implements TeaPostService {
 
@@ -47,7 +50,7 @@ public class TeaPostServiceImpl extends ServiceImpl<TeaPostMapper, TeaPost> impl
     private final TeaTopicService teaTopicService;
     private final TeaPostTopicMapper teaPostTopicMapper;
     private final ObjectMapper objectMapper;
-    private final MqProducer mqProducer;
+    private final TeaNotificationPublisher teaNotificationPublisher;
 
     public TeaPostServiceImpl(
             UserService userService,
@@ -58,7 +61,7 @@ public class TeaPostServiceImpl extends ServiceImpl<TeaPostMapper, TeaPost> impl
             TeaTopicService teaTopicService,
             TeaPostTopicMapper teaPostTopicMapper,
             ObjectMapper objectMapper,
-            MqProducer mqProducer
+            TeaNotificationPublisher teaNotificationPublisher
     ) {
         this.userService = userService;
         this.teaLikeMapper = teaLikeMapper;
@@ -67,7 +70,7 @@ public class TeaPostServiceImpl extends ServiceImpl<TeaPostMapper, TeaPost> impl
         this.teaTopicService = teaTopicService;
         this.teaPostTopicMapper = teaPostTopicMapper;
         this.objectMapper = objectMapper;
-        this.mqProducer = mqProducer;
+        this.teaNotificationPublisher = teaNotificationPublisher;
     }
 
 
@@ -291,14 +294,17 @@ public class TeaPostServiceImpl extends ServiceImpl<TeaPostMapper, TeaPost> impl
                     .update();
             isLiked = true;
             if (!userId.equals(post.getUserId())) {
-                Map<String, Object> notifyMsg = Map.of(
-                        "targetUserId", post.getUserId(),
-                        "type", "like",
-                        "sourceId", like.getId(),
-                        "actorId", userId
+                boolean published = teaNotificationPublisher.publishLikeNotification(
+                        TeaNotificationMessage.builder()
+                                .targetUserId(post.getUserId())
+                                .type("like")
+                                .sourceId(like.getId())
+                                .actorId(userId)
+                                .build()
                 );
-                mqProducer.send(MqConstants.TOPIC_TEA_NOTIFICATION, MqConstants.TAG_LIKE,
-                        String.valueOf(like.getId()), notifyMsg);
+                if (!published) {
+                    log.warn("RocketMQ 不可用，消息未发送");
+                }
             }
         }
 

@@ -39,8 +39,8 @@ import com.xytgy.teamallbackend.module.order.vo.LogisticsVO;
 import com.xytgy.teamallbackend.module.order.vo.MerchantOrderVO;
 import com.xytgy.teamallbackend.module.order.vo.OrderVO;
 import com.xytgy.teamallbackend.module.order.vo.OrderStatsVO;
-import com.xytgy.teamallbackend.mq.constant.MqConstants;
-import com.xytgy.teamallbackend.mq.producer.MqProducer;
+import com.xytgy.teamallbackend.mq.message.order.OrderTimeoutMessage;
+import com.xytgy.teamallbackend.mq.publisher.OrderTimeoutPublisher;
 import com.xytgy.teamallbackend.lock.DistributedLock;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
@@ -54,11 +54,22 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
+
 /**
-* @author xytgy
-* @description 针对表【orders】的数据库操作Service实现
-* @createDate 2026-04-15 08:01:03
-*/
+ * 订单领域核心服务。
+ * <p>
+ * 这个类基本承接了订单模块的大部分主业务规则，可以按下面几条主线来读：
+ * 1. 普通下单：{@link #createOrder(Long, OrderCreateRequest)}
+ * 2. 买家取消/支付/确认收货：{@link #cancelOrder(Long, Long)}、{@link #payOrder(Long, OrderPayRequest)}、
+ *    {@link #confirmOrder(Long, Long)}
+ * 3. 商家履约：{@link #deliverOrder(Long, Long)}
+ * 4. 售后退款：{@link #applyRefund(Long, Long)}、
+ *    {@link #approveRefund(Long, Long)}、{@link #refuseRefund(Long, Long, String)}
+ * <p>
+ * 阅读建议：
+ * 先看 createOrder 了解“订单是怎么生成的”，
+ * 再看 cancel/pay/refund 了解“订单状态怎么流转”。
+ */
 @Service
 @RequiredArgsConstructor
 public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
@@ -78,11 +89,15 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
     // S6809: 自注入，通过代理调用 @Transactional 方法，避免 this 调用导致事务失效
     private final ObjectProvider<OrdersService> selfProvider;
     private final DistributedLock distributedLock;
-    private final MqProducer mqProducer;
+    private final OrderTimeoutPublisher orderTimeoutPublisher;
 
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final String FIELD_STATUS = "status";
 
+    /**
+     * 延迟获取支付宝客户端。
+     * 这样在未启用支付宝配置的环境下，订单模块其余能力仍然可以正常工作。
+     */
     private AlipayClient getAlipayClient() {
         AlipayClient client = alipayClientProvider.getIfAvailable();
         if (client == null) {
@@ -91,6 +106,16 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         return client;
     }
 
+    /**
+     * 普通订单创建主链路。
+     * <p>
+     * 执行顺序：
+     * 1. 校验商品与收货参数
+     * 2. 计算总价并创建订单主表
+     * 3. 扣减库存并写入订单明细
+     * 4. 清理购物车
+     * 5. 发送“订单超时自动取消”延迟消息
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public CreateOrderVO createOrder(Long userId, OrderCreateRequest request) {
@@ -108,13 +133,23 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         deductStockAndSaveItems(order, productQtyMap, productMap);
         cartService.removeByUserAndProductIds(userId, new ArrayList<>(productQtyMap.keySet()));
 
-        Map<String, Object> timeoutMsg = Map.of("orderId", order.getId(), "userId", userId);
-        mqProducer.sendDelay(MqConstants.TOPIC_ORDER_TIMEOUT, MqConstants.TAG_TIMEOUT_CANCEL,
-                String.valueOf(order.getId()), timeoutMsg, MqConstants.DELAY_LEVEL_30_MINUTES);
+        boolean published = orderTimeoutPublisher.publishOrderTimeout(
+                OrderTimeoutMessage.builder()
+                        .orderId(order.getId())
+                        .userId(userId)
+                        .build()
+        );
+        if (!published) {
+            log.warn("RocketMQ 不可用，订单超时消息未发送: orderId=" + order.getId());
+        }
 
         return new CreateOrderVO(order.getOrderNo(), order.getId());
     }
 
+    /**
+     * 把前端传入的 items 规整成 productId -> quantity 映射，
+     * 顺便完成基础参数校验。
+     */
     private Map<Long, Integer> buildAndValidateProductQtyMap(OrderCreateRequest request) {
         if (request == null || request.getItems() == null || request.getItems().isEmpty()) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "订单商品不能为空");
@@ -134,6 +169,9 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         return productQtyMap;
     }
 
+    /**
+     * 批量加载商品，并确保请求中的商品都真实存在。
+     */
     private Map<Long, Product> loadAndValidateProducts(Map<Long, Integer> productQtyMap) {
         List<Product> products = productService.listByIds(productQtyMap.keySet());
         if (products.size() != productQtyMap.size()) {
@@ -142,6 +180,10 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         return products.stream().collect(Collectors.toMap(Product::getId, p -> p));
     }
 
+    /**
+     * 校验商品状态与库存，并计算订单总金额。
+     * 这里还是“下单前预检”，真正扣库存发生在后面的 deductStockAndSaveItems。
+     */
     private BigDecimal validateStockAndCalcTotal(Map<Long, Integer> productQtyMap, Map<Long, Product> productMap) {
         BigDecimal totalAmount = BigDecimal.ZERO;
         for (Map.Entry<Long, Integer> entry : productQtyMap.entrySet()) {
@@ -157,6 +199,12 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         return totalAmount;
     }
 
+    /**
+     * 扣库存并写订单明细。
+     * <p>
+     * 每个商品用乐观锁 SQL 扣减：`WHERE stock >= qty`，
+     * 用来避免并发超卖。
+     */
     private void deductStockAndSaveItems(Orders order, Map<Long, Integer> productQtyMap, Map<Long, Product> productMap) {
         List<OrderItem> orderItems = new ArrayList<>();
         for (Map.Entry<Long, Integer> entry : productQtyMap.entrySet()) {
@@ -185,6 +233,9 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         orderItemService.saveBatch(orderItems);
     }
 
+    /**
+     * 获取单个订单详情，包含订单项列表。
+     */
     @ReadOnly
     @Override
     public OrderVO getOrderDetail(Long userId, Long orderId) {
@@ -202,6 +253,10 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         return vo;
     }
 
+    /**
+     * 买家分页查看自己的订单。
+     * 这里会批量加载当前页订单对应的 order_item，避免 N+1 查询。
+     */
     @ReadOnly
     @Override
     public PageResult<OrderVO> listOrders(Long userId, Integer status, int page, int pageSize) {
@@ -235,6 +290,9 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         return new PageResult<>(voList, pageResult.getTotal(), page, pageSize);
     }
 
+    /**
+     * 买家确认收货：已发货 -> 已完成。
+     */
     @Override
     public void confirmOrder(Long userId, Long orderId) {
         Orders order = getUserOrder(userId, orderId);
@@ -245,6 +303,11 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         updateById(order);
     }
 
+    /**
+     * 买家取消订单。
+     * <p>
+     * 这里要先处理可能存在的支付单，再进入事务回补库存并更新订单状态。
+     */
     @Override
     public void cancelOrder(Long userId, Long orderId) {
         //先做检验
@@ -263,6 +326,10 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         selfProvider.getObject().doCancelOrderInTransaction(order);
     }
 
+    /**
+     * 支付取消前的支付宝关单编排入口。
+     * 这部分的复杂度主要来自：先查真实支付状态，再决定是标记关闭、直接返回还是继续关单。
+     */
     // S3776: 拆分高认知复杂度方法，消除 6 层嵌套
     private void closeAlipayTrade(PaymentRecord payingRecord) {
         try {
@@ -277,6 +344,9 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         }
     }
 
+    /**
+     * 查询支付宝侧交易状态。
+     */
     private AlipayTradeQueryResponse queryAlipayTradeStatus(String outTradeNo) throws AlipayApiException {
         AlipayTradeQueryRequest request = new AlipayTradeQueryRequest();
         AlipayTradeQueryModel model = new AlipayTradeQueryModel();
@@ -285,6 +355,12 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         return getAlipayClient().execute(request);
     }
 
+    /**
+     * 根据支付宝返回的交易状态决定后续动作：
+     * 已支付 -> 不允许取消；
+     * 已关闭 -> 直接标记本地关闭；
+     * 其他进行中的状态 -> 尝试远程关单。
+     */
     private void handleTradeStatusForClose(PaymentRecord paymentRecord, String tradeStatus) throws AlipayApiException {
         if ("TRADE_SUCCESS".equals(tradeStatus) || "TRADE_FINISHED".equals(tradeStatus)) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "该订单已完成支付，无法取消；如需撤销请在订单中发起退款。");
@@ -296,6 +372,9 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         closeAlipayTradeAndRetry(paymentRecord);
     }
 
+    /**
+     * 调用支付宝关单；如果响应不明确，再做一次补查询，尽量避免网络抖动导致的误判。
+     */
     private void closeAlipayTradeAndRetry(PaymentRecord paymentRecord) throws AlipayApiException {
         AlipayTradeCloseRequest closeRequest = new AlipayTradeCloseRequest();
         AlipayTradeCloseModel closeModel = new AlipayTradeCloseModel();
@@ -315,11 +394,21 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         throw new ServiceException(ResultCode.ERROR, "支付宝关单失败: " + closeResponse.getSubMsg());
     }
 
+    /**
+     * 本地标记支付记录关闭。
+     */
     private void markRecordClosed(PaymentRecord paymentRecord) {
         paymentRecord.setStatus(PaymentRecord.STATUS_CLOSED);
         paymentRecordService.updateById(paymentRecord);
     }
 
+    /**
+     * 真正执行取消订单的事务方法。
+     * <p>
+     * 做两件事：
+     * 1. 读取订单明细并回补库存
+     * 2. 更新订单状态为已取消
+     */
     // S2229: 显式声明传播行为，避免嵌套事务配置冲突
     @Transactional(rollbackFor = Exception.class, propagation = Propagation.REQUIRES_NEW)
     public void doCancelOrderInTransaction(Orders order) {
@@ -341,6 +430,10 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         updateById(order);
     }
 
+    /**
+     * 模拟支付入口。
+     * 这里只是开发/测试用的本地状态变更，不是正式支付宝支付流程。
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void payOrder(Long userId, OrderPayRequest request) {
@@ -348,22 +441,19 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
             throw new ServiceException(ResultCode.BAD_REQUEST, "参数错误");
         }
 
-        String lockKey = "order:pay:" + request.getOrderId();
-        if (!distributedLock.tryLock(lockKey)) {
-            throw new ServiceException(ResultCode.BAD_REQUEST, "请勿重复提交");
-        }
-        try {
+        distributedLock.executeWithLock("order:pay:" + request.getOrderId(), () -> {
             Orders order = getUserOrder(userId, request.getOrderId());
             if (!Objects.equals(order.getStatus(), Orders.STATUS_PENDING_PAYMENT)) {
                 throw new ServiceException(ResultCode.BAD_REQUEST, "订单状态不正确，无法支付");
             }
             order.setStatus(Orders.STATUS_PAID);
             updateById(order);
-        } finally {
-            distributedLock.unlock(lockKey);
-        }
+        });
     }
 
+    /**
+     * 买家申请退款：已支付 -> 退款申请中。
+     */
     @Override
     public void applyRefund(Long userId, Long orderId) {
         Orders order = getUserOrder(userId, orderId);
@@ -375,6 +465,10 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         updateById(order);
     }
 
+    /**
+     * 买家提交评价。
+     * 当前实现里，评价后把订单状态复用成已取消，这是一个业务简化点，后续可考虑拆出独立“已评价”状态。
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void submitReview(Long userId, OrderReviewRequest request) {
@@ -405,40 +499,29 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         order.setStatus(Orders.STATUS_CANCELLED); 
         updateById(order);
     }
+
+    /**
+     * 商家分页查看自己店铺关联的订单。
+     * 这里通过 SQL 子查询完成商家商品与订单的关联过滤，避免把全量订单项拉到应用层再过滤。
+     */
     @ReadOnly
     @Override
     public PageResult<MerchantOrderVO> listMerchantOrders(Long merchantId, int page, int pageSize) {
-        // 1. 获取该商家的所有商品
-        List<Product> products = productService.lambdaQuery()
-                .eq(Product::getMerchantId, merchantId)
-                .list();
-        if (products.isEmpty()) {
-            return new PageResult<>(Collections.emptyList(), 0, page, pageSize);
-        }
-        List<Long> productIds = products.stream().map(Product::getId).toList();
+        // 通过 SQL 子查询在数据库层面完成 商品ID→订单ID→分页 的关联过滤，
+        // 避免全量加载 order_item 到应用内存
+        Page<Orders> pageResult = baseMapper.selectMerchantOrderPage(
+                new Page<>(page, pageSize), merchantId);
 
-        // 2. 获取包含这些商品的订单项
-        List<OrderItem> orderItems = orderItemService.lambdaQuery()
-                .in(OrderItem::getProductId, productIds)
-                .list();
-        if (orderItems.isEmpty()) {
+        if (pageResult.getRecords().isEmpty()) {
             return new PageResult<>(Collections.emptyList(), 0, page, pageSize);
         }
 
-        // 3. 提取唯一的订单ID
-        List<Long> orderIds = orderItems.stream()
-                .map(OrderItem::getOrderId)
-                .distinct()
-                .toList();
-
-        // 4. 分页查询订单
-        Page<Orders> pageResult = lambdaQuery()
-                .in(Orders::getId, orderIds)
-                .orderByDesc(Orders::getCreateTime)
-                .page(new Page<>(page, pageSize));
-
-        // 获取订单与商品明细的映射关系
-        Map<Long, List<OrderItem>> orderItemMap = orderItems.stream()
+        // 仅加载当前页订单对应的 order_item（而非全量）
+        List<Long> orderIds = pageResult.getRecords().stream().map(Orders::getId).toList();
+        Map<Long, List<OrderItem>> orderItemMap = orderItemService.lambdaQuery()
+                .in(OrderItem::getOrderId, orderIds)
+                .list()
+                .stream()
                 .collect(Collectors.groupingBy(OrderItem::getOrderId));
 
         List<MerchantOrderVO> voList = pageResult.getRecords().stream().map(order -> {
@@ -455,6 +538,10 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         return new PageResult<>(voList, pageResult.getTotal(), page, pageSize);
     }
 
+    /**
+     * 商家发货：已支付 -> 已发货。
+     * 进入发货前会校验订单里确实包含该商家的商品。
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deliverOrder(Long merchantId, Long orderId) {
@@ -493,6 +580,9 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         updateById(order);
     }
 
+    /**
+     * 买家订单状态统计，通常用于“我的订单”页签数字展示。
+     */
     @ReadOnly
     @Override
     public OrderStatsVO getOrderStats(Long userId) {
@@ -525,6 +615,10 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         return stats;
     }
 
+    /**
+     * 模拟订单物流轨迹。
+     * 当前不是对接真实快递平台，而是根据订单时间推演一组展示数据。
+     */
     @Override
     public List<LogisticsVO> getOrderLogistics(Long userId, Long orderId) {
         Orders order = getUserOrder(userId, orderId);
@@ -577,6 +671,10 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         return logisticsList;
     }
 
+    /**
+     * 校验并获取“当前用户自己的订单”。
+     * 这是买家侧多数接口共用的权限边界方法。
+     */
     private Orders getUserOrder(Long userId, Long orderId) {
         if (orderId == null) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "订单ID不能为空");
@@ -591,16 +689,26 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         return order;
     }
 
-    // S2140: 使用 AtomicInteger 替代 Math.random()，线程安全且可排序
-    private static final java.util.concurrent.atomic.AtomicInteger ORDER_SEQ = new java.util.concurrent.atomic.AtomicInteger(0);
-
+    /**
+     * 生成订单号。
+     * 结构上保留时间和用户片段方便排查，同时用 UUID 片段保证多实例下唯一性。
+     */
+    // S2140: 使用 UUID 保证多实例部署时订单号全局唯一，同时保留时间戳和用户ID可读性
     private String generateOrderNo(Long userId) {
         String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
         String userPart = String.format("%04d", userId % 10000);
-        String seqPart = String.format("%04d", ORDER_SEQ.incrementAndGet() % 10000);
-        return "T" + timestamp + userPart + seqPart;
+        String uniquePart = UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase();
+        return "T" + timestamp + userPart + uniquePart;
     }
 
+    /**
+     * 商家同意退款。
+     * <p>
+     * 主流程是：
+     * 1. 校验订单与支付记录状态
+     * 2. 调支付宝退款
+     * 3. 本地事务更新订单为已退款
+     */
     @Override
     public void approveRefund(Long merchantId, Long orderId) {
         Orders order = getMerchantOrder(merchantId, orderId);
@@ -653,6 +761,9 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         selfProvider.getObject().doApproveRefundInTransaction(order);
     }
 
+    /**
+     * 退款成功后的本地事务更新。
+     */
     @Transactional(rollbackFor = Exception.class)
     public void doApproveRefundInTransaction(Orders order) {
         boolean updated = lambdaUpdate()
@@ -673,6 +784,9 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         // 如果需要，可以在这里增加库存恢复逻辑
     }
 
+    /**
+     * 商家拒绝退款。
+     */
     @Override
     public void refuseRefund(Long merchantId, Long orderId, String reason) {
         if (!StringUtils.hasText(reason)) {
@@ -696,6 +810,10 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders>
         }
     }
 
+    /**
+     * 校验并获取“当前商家有权处理的订单”。
+     * 这里不是直接查 merchantId 字段，而是通过订单项反查商品归属来判断权限。
+     */
     private Orders getMerchantOrder(Long merchantId, Long orderId) {
         if (orderId == null) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "订单ID不能为空");

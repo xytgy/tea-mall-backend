@@ -2,9 +2,10 @@ package com.xytgy.teamallbackend.module.flashsale.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.xytgy.teamallbackend.common.ResultCode;
-import com.xytgy.teamallbackend.mq.config.FlashSaleCacheManager;
 import com.xytgy.teamallbackend.mq.constant.MqConstants;
-import com.xytgy.teamallbackend.mq.producer.MqProducer;
+import com.xytgy.teamallbackend.mq.config.FlashSaleCacheManager;
+import com.xytgy.teamallbackend.mq.message.flashsale.FlashOrderCreateMessage;
+import com.xytgy.teamallbackend.mq.publisher.FlashOrderPublisher;
 import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.module.flashsale.dto.FlashSaleBuyRequest;
 import com.xytgy.teamallbackend.module.flashsale.entity.FlashSale;
@@ -50,7 +51,8 @@ public class FlashSaleCoreService {
     private final FlashSaleAuditLogMapper flashSaleAuditLogMapper;
     private final ProductMapper productMapper;
     private final OrdersMapper ordersMapper;
-    private final MqProducer mqProducer;
+    private final FlashOrderPublisher flashOrderPublisher;
+    private final FlashOrderPersistenceService flashOrderPersistenceService;
     private final FlashSaleRateLimiter rateLimiter;
     private final FlashSaleMetrics metrics;
     private final FlashSaleBehaviorAnalyzer behaviorAnalyzer;
@@ -78,8 +80,12 @@ public class FlashSaleCoreService {
     static final String FLASH_STOCK_PREFIX = "{flash:";
     static final String FLASH_BOUGHT_PREFIX = "{flash:";
 
-    private static final String KEY_DEDUCT_FAIL_LIMIT = "flash.deduct.fail.limit";
-    private static final String KEY_DEDUCT_FAIL_SOLDOUT = "flash.deduct.fail.soldout";
+   private static final String KEY_DEDUCT_FAIL_LIMIT = "flash.deduct.fail.limit";
+   private static final String KEY_DEDUCT_FAIL_SOLDOUT = "flash.deduct.fail.soldout";
+    /** Lua 脚本返回值：已购买 */
+    private static final long LUA_ALREADY_BOUGHT = -1L;
+    /** Lua 脚本返回值：已售罄（扣减前库存即为 0） */
+    private static final long LUA_SOLD_OUT = -2L;
     private static final String STOCK_SUFFIX = "}:stock";
     private static final String FIELD_STATUS = "status";
     private static final String FIELD_FLASH_PRICE = "flashPrice";
@@ -180,20 +186,25 @@ public class FlashSaleCoreService {
         metrics.increment("flash.deduct.success");
         cacheManager.syncLocalStock(request.getProductId(), deductResult.intValue());
 
-        String transactionId = buildTransactionId(request.getFlashSaleId(), request.getProductId(), userId);
-        Map<String, Object> payload = Map.of(
-                "transactionId", transactionId,
-                "flashSaleId", request.getFlashSaleId(),
-                "productId", request.getProductId(),
-                "userId", userId,
-                FIELD_FLASH_PRICE, new BigDecimal(String.valueOf(actProduct.get(FIELD_FLASH_PRICE))));
+        FlashOrderCreateMessage message = FlashOrderCreateMessage.builder()
+                .transactionId(buildTransactionId(request.getFlashSaleId(), request.getProductId(), userId))
+                .flashSaleId(request.getFlashSaleId())
+                .productId(request.getProductId())
+                .userId(userId)
+                .flashPrice(new BigDecimal(String.valueOf(actProduct.get(FIELD_FLASH_PRICE))))
+                .build();
 
-        String pendingKey = "flash:pending:" + transactionId;
+        String pendingKey = "flash:pending:" + message.getTransactionId();
         try {
-            stringRedisTemplate.opsForValue().set(pendingKey, transactionId, 30, TimeUnit.MINUTES);
-            mqProducer.send(MqConstants.TOPIC_FLASH_ORDER, MqConstants.TAG_FLASH_ORDER, transactionId, payload);
+            stringRedisTemplate.opsForValue().set(pendingKey, message.getTransactionId(), 30, TimeUnit.MINUTES);
+            boolean published = flashOrderPublisher.publishCreateOrder(message);
+            if (!published) {
+                log.warn("RocketMQ 不可用，秒杀订单转同步创建: transactionId={}", message.getTransactionId());
+                flashOrderPersistenceService.createFlashOrder(message);
+            }
         } catch (Exception mqEx) {
-            log.error("MQ 发送失败, pending 记录保留等待补偿: transactionId={}", transactionId);
+            log.error("MQ 发送或秒杀订单创建失败, pending 记录保留等待补偿: transactionId={}",
+                    message.getTransactionId(), mqEx);
         }
 
         log.info("秒杀扣减成功: userId={}, productId={}, remainStock={}", userId, request.getProductId(), deductResult);
@@ -216,7 +227,7 @@ public class FlashSaleCoreService {
         // === P1-4: 删除冗余 SISMEMBER，完全依赖 Lua 内部原子检查 ===
         // Lua 脚本内部已包含 sismember 检查，结果 -1 表示已购买
         if (cacheManager.isLocalStockEmpty(productId)) {
-            return 0L;
+            return LUA_SOLD_OUT;
         }
         String stockKey = FLASH_STOCK_PREFIX + productId + STOCK_SUFFIX;
         String boughtKey = FLASH_BOUGHT_PREFIX + productId + "}:bought:" + flashSaleId;
@@ -232,7 +243,7 @@ public class FlashSaleCoreService {
     /**
      * 处理 Lua 脚本扣减结果，将原始返回值映射为业务结果。
      *
-     * @param result Lua 脚本返回值：null=系统异常, -1=已达限购, 0=售罄, &gt;0=剩余库存
+     * @param result Lua 脚本返回值：null=系统异常, -1=已达限购, -2=售罄, &gt;=0=剩余库存
      * @return 错误时返回 {@link FlashSaleBuyResult}，成功返回 null
      */
     private FlashSaleBuyResult handleDeductResult(Long result) {
@@ -240,11 +251,11 @@ public class FlashSaleCoreService {
             metrics.increment(KEY_DEDUCT_FAIL_LIMIT);
             return fail("系统异常，请稍后重试");
         }
-        if (result == -1L) {
+        if (result == LUA_ALREADY_BOUGHT) {
             metrics.increment("flash.deduct.fail.bought");
             return fail("已达限购数量，不可重复抢购");
         }
-        if (result == 0L) {
+        if (result == LUA_SOLD_OUT) {
             metrics.increment(KEY_DEDUCT_FAIL_SOLDOUT);
             return fail("已售罄");
         }

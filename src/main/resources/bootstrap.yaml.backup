@@ -1,0 +1,13 @@
+spring:
+  application:
+    name: tea-mall-backend
+  cloud:
+    nacos:
+      config:
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+        namespace: ${NACOS_NAMESPACE:}
+        group: DEFAULT_GROUP
+        file-extension: yaml
+      discovery:
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+        namespace: ${NACOS_NAMESPACE:}

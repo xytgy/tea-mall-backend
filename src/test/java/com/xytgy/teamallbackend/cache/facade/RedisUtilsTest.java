@@ -1,12 +1,20 @@
-package com.xytgy.teamallbackend.utils;
+package com.xytgy.teamallbackend.cache.facade;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.stats.CacheStats;
-import com.xytgy.teamallbackend.cache.BloomFilterManager;
+import com.xytgy.teamallbackend.cache.bloom.BloomFilterManager;
+import com.xytgy.teamallbackend.cache.hot.HotCacheReadResult;
+import com.xytgy.teamallbackend.cache.hot.HotCacheRecord;
+import com.xytgy.teamallbackend.cache.hot.HotCacheService;
+import com.xytgy.teamallbackend.cache.invalidation.CacheInvalidationEventPublisher;
+import com.xytgy.teamallbackend.cache.key.VersionedCacheKeyService;
+import com.xytgy.teamallbackend.cache.metrics.CacheMetrics;
+import com.xytgy.teamallbackend.cache.standard.MultiLevelCacheService;
+import com.xytgy.teamallbackend.lock.DistributedLock;
 import com.xytgy.teamallbackend.properties.CacheProperties;
-import com.xytgy.teamallbackend.utils.RedisUtils.HotCacheWrapper;
+import com.xytgy.teamallbackend.cache.facade.RedisUtils.HotCacheWrapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -21,8 +29,10 @@ import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 
 import java.lang.reflect.Field;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -41,13 +51,20 @@ class RedisUtilsTest {
     private BloomFilterManager bloomFilterManager;
 
     @Mock
+    private DistributedLock distributedLock;
+
+    @Mock
     private ValueOperations<String, String> valueOperations;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private RedisUtils redisUtils;
+    private MultiLevelCacheService multiLevelCacheService;
+    private HotCacheService hotCacheService;
     private Cache<String, String> localCache;
-    private String instanceId;
+    private Cache<String, String> hotLocalCache;
+    private CacheInvalidationEventPublisher invalidationPublisher;
+    private VersionedCacheKeyService versionedCacheKeyService;
 
     @BeforeEach
     @SuppressWarnings("unchecked")
@@ -55,16 +72,28 @@ class RedisUtilsTest {
         lenient().when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
 
         CacheProperties props = buildProperties(512, 60);
-        redisUtils = new RedisUtils(stringRedisTemplate, objectMapper, bloomFilterManager, props, null);
-        redisUtils.init();
+        CacheMetrics metrics = new CacheMetrics(null);
+        multiLevelCacheService = new MultiLevelCacheService(
+                stringRedisTemplate, objectMapper, props, metrics, distributedLock);
+        hotCacheService = new HotCacheService(
+                stringRedisTemplate, objectMapper, props, metrics);
+        lenient().when(distributedLock.tryLock(anyString())).thenReturn(true);
+        multiLevelCacheService.init();
+        hotCacheService.init();
+        invalidationPublisher = mock(CacheInvalidationEventPublisher.class);
+        versionedCacheKeyService = mock(VersionedCacheKeyService.class);
+        redisUtils = new RedisUtils(
+                multiLevelCacheService, hotCacheService,
+                bloomFilterManager, metrics, invalidationPublisher,
+                versionedCacheKeyService);
 
-        Field field = RedisUtils.class.getDeclaredField("localCache");
+        Field field = MultiLevelCacheService.class.getDeclaredField("localCache");
         field.setAccessible(true);
-        localCache = (Cache<String, String>) field.get(redisUtils);
+        localCache = (Cache<String, String>) field.get(multiLevelCacheService);
 
-        Field idField = RedisUtils.class.getDeclaredField("instanceId");
-        idField.setAccessible(true);
-        instanceId = (String) idField.get(redisUtils);
+        Field hotCacheField = HotCacheService.class.getDeclaredField("localCache");
+        hotCacheField.setAccessible(true);
+        hotLocalCache = (Cache<String, String>) hotCacheField.get(hotCacheService);
     }
 
     private CacheProperties buildProperties(long maxSize, long expireSeconds) {
@@ -99,6 +128,12 @@ class RedisUtilsTest {
 
     private String serializeHot(TestDto data, long expireAt) throws Exception {
         return objectMapper.writeValueAsString(new HotCacheWrapper<>(data, expireAt));
+    }
+
+    private String serializeHotRecord(TestDto data, boolean nullValue,
+                                      long logicalExpireAt, long createdAt) throws Exception {
+        return objectMapper.writeValueAsString(
+                new HotCacheRecord<>(data, nullValue, logicalExpireAt, createdAt));
     }
 
     @SuppressWarnings("unchecked")
@@ -184,6 +219,20 @@ class RedisUtilsTest {
     class GetOrLoadTests {
 
         @Test
+        @DisplayName("L1 命中：不调用 loader，不尝试获取分布式锁")
+        void l1Hit_skipsLoaderAndLock() {
+            localCache.put("k", "{\"name\":\"cached\"}");
+
+            TestDto result = redisUtils.getOrLoad("k", TestDto.class, 5, () -> {
+                fail("loader 不应被调用");
+                return null;
+            });
+
+            assertEquals(new TestDto("cached"), result);
+            verify(distributedLock, never()).tryLock(anyString());
+        }
+
+        @Test
         @DisplayName("缓存未命中：调用 loader 并写入两级缓存")
         void cacheMiss_callsLoaderAndCaches() {
             doReturn(null).when(valueOperations).get("k");
@@ -192,6 +241,8 @@ class RedisUtilsTest {
 
             assertEquals(new TestDto("loaded"), result);
             verify(valueOperations).set(eq("k"), contains("loaded"), anyLong(), eq(TimeUnit.MINUTES));
+            verify(distributedLock).tryLock("cache:load:k");
+            verify(distributedLock).unlock("cache:load:k");
         }
 
         @Test
@@ -205,6 +256,7 @@ class RedisUtilsTest {
             });
 
             assertEquals(new TestDto("cached"), result);
+            verify(distributedLock, never()).tryLock(anyString());
         }
 
         @Test
@@ -246,6 +298,112 @@ class RedisUtilsTest {
                     }));
 
             verify(valueOperations, never()).set(eq("k"), anyString(), anyLong(), any());
+            verify(distributedLock).unlock("cache:load:k");
+        }
+
+        @Test
+        @DisplayName("抢锁成功后二次检查命中：不调用 loader")
+        void lockSuccess_secondCheckHit_skipsLoader() {
+            doReturn(null, "{\"name\":\"filled\"}").when(valueOperations).get("k");
+
+            TestDto result = redisUtils.getOrLoad("k", TestDto.class, 5, () -> {
+                fail("其他实例已回填缓存，不应调用 loader");
+                return null;
+            });
+
+            assertEquals(new TestDto("filled"), result);
+            verify(distributedLock).tryLock("cache:load:k");
+            verify(distributedLock).unlock("cache:load:k");
+            verify(valueOperations, never()).set(eq("k"), anyString(), anyLong(), any());
+        }
+
+        @Test
+        @DisplayName("抢锁期间 L1 被并发回填：保留真实值且不再次查询 Redis")
+        void lockAcquisition_concurrentL1Fill_preservesValueAndSkipsRedisRetry() {
+            doReturn(null).when(valueOperations).get("k");
+            doAnswer(invocation -> {
+                localCache.put("k", "{\"name\":\"concurrent\"}");
+                return true;
+            }).when(distributedLock).tryLock("cache:load:k");
+
+            TestDto result = redisUtils.getOrLoad("k", TestDto.class, 5, () -> {
+                fail("并发回填的 L1 值应直接返回，不应调用 loader");
+                return null;
+            });
+
+            assertEquals(new TestDto("concurrent"), result);
+            verify(valueOperations, times(1)).get("k");
+            verify(distributedLock).unlock("cache:load:k");
+        }
+
+        @Test
+        @DisplayName("抢锁失败后二次检查命中：直接返回缓存")
+        void lockFail_secondCheckHit_returnsCachedValue() {
+            doReturn(false).when(distributedLock).tryLock("cache:load:k");
+            doReturn(null, "{\"name\":\"filled\"}").when(valueOperations).get("k");
+
+            TestDto result = redisUtils.getOrLoad("k", TestDto.class, 5, () -> {
+                fail("其他实例已回填缓存，不应调用 loader");
+                return null;
+            });
+
+            assertEquals(new TestDto("filled"), result);
+            verify(distributedLock, never()).unlock(anyString());
+        }
+
+        @Test
+        @DisplayName("抢锁失败且二次检查仍未命中：降级回源")
+        void lockFail_secondCheckMiss_fallsBackToLoader() {
+            doReturn(false).when(distributedLock).tryLock("cache:load:k");
+            doReturn(null).when(valueOperations).get("k");
+
+            TestDto result = redisUtils.getOrLoad(
+                    "k", TestDto.class, 5, () -> new TestDto("fallback"));
+
+            assertEquals(new TestDto("fallback"), result);
+            verify(valueOperations).set(
+                    eq("k"), contains("fallback"), anyLong(), eq(TimeUnit.MINUTES));
+            verify(distributedLock, never()).unlock(anyString());
+        }
+
+        @Test
+        @DisplayName("锁服务异常：降级二次检查和回源")
+        void lockThrows_fallsBackToLoader() {
+            doThrow(new IllegalStateException("redis unavailable"))
+                    .when(distributedLock).tryLock("cache:load:k");
+            doReturn(null, (Object) null).when(valueOperations).get("k");
+
+            TestDto result = redisUtils.getOrLoad(
+                    "k", TestDto.class, 5, () -> new TestDto("fallback"));
+
+            assertEquals(new TestDto("fallback"), result);
+            verify(valueOperations, times(2)).get("k");
+            verify(distributedLock, never()).unlock(anyString());
+        }
+
+        @Test
+        @DisplayName("二次检查命中 NULL 占位符：不再回源")
+        void secondCheckNullPlaceholder_skipsLoader() {
+            doReturn(null, "NULL").when(valueOperations).get("k");
+
+            assertNull(redisUtils.getOrLoad("k", TestDto.class, 5, () -> {
+                fail("空值缓存已经回填，不应调用 loader");
+                return null;
+            }));
+            verify(distributedLock).unlock("cache:load:k");
+        }
+
+        @Test
+        @DisplayName("TypeReference 重载：缓存未命中时同样使用分布式锁")
+        void typeReferenceMiss_usesDistributedLock() {
+            doReturn(null).when(valueOperations).get("k");
+
+            TestDto result = redisUtils.getOrLoad(
+                    "k", new TypeReference<TestDto>() {}, 5, () -> new TestDto("loaded"));
+
+            assertEquals(new TestDto("loaded"), result);
+            verify(distributedLock).tryLock("cache:load:k");
+            verify(distributedLock).unlock("cache:load:k");
         }
     }
 
@@ -301,6 +459,30 @@ class RedisUtilsTest {
     class HotDataTests {
 
         @Test
+        @DisplayName("热点缓存记录可显式表达缓存空值")
+        void record_supportsExplicitNullValue() {
+            HotCacheRecord<TestDto> record = new HotCacheRecord<>(null, true, 200L, 100L);
+
+            assertTrue(record.isNullValue());
+            assertNull(record.getData());
+            assertEquals(200L, record.getLogicalExpireAt());
+        }
+
+        @Test
+        @DisplayName("热点读取结果可区分 fresh 和 stale")
+        void readResult_distinguishesFreshAndStale() {
+            HotCacheReadResult<TestDto> fresh = HotCacheReadResult.fresh(
+                    new TestDto("ok"), false, 200L, 100L);
+            HotCacheReadResult<TestDto> stale = HotCacheReadResult.stale(
+                    new TestDto("old"), false, 100L, 50L);
+
+            assertTrue(fresh.isHit());
+            assertTrue(fresh.isFresh());
+            assertTrue(stale.isHit());
+            assertFalse(stale.isFresh());
+        }
+
+        @Test
         @DisplayName("逻辑未过期：直接返回数据")
         void notExpired_returnsData() throws Exception {
             String hotKey = "hot:product:1";
@@ -324,13 +506,13 @@ class RedisUtilsTest {
             long pastExpire = System.currentTimeMillis() - 1000;
             String json = serializeHot(new TestDto("stale"), pastExpire);
             doReturn(json).when(valueOperations).get(hotKey);
-            doReturn(true).when(valueOperations).setIfAbsent(lockKey, instanceId, 10L, TimeUnit.SECONDS);
+            doReturn(true).when(valueOperations).setIfAbsent(eq(lockKey), anyString(), eq(Duration.ofSeconds(10)));
 
             TestDto result = redisUtils.getOrLoadHot(hotKey, TestDto.class, 30, () -> new TestDto("fresh"));
 
             assertEquals(new TestDto("fresh"), result);
-            verify(valueOperations).setIfAbsent(lockKey, instanceId, 10L, TimeUnit.SECONDS);
-            verify(stringRedisTemplate).execute(any(), eq(List.of(lockKey)), eq(instanceId));
+            verify(valueOperations).setIfAbsent(eq(lockKey), anyString(), eq(Duration.ofSeconds(10)));
+            verify(stringRedisTemplate).execute(any(DefaultRedisScript.class), eq(List.of(lockKey)), anyString());
         }
 
         @Test
@@ -342,7 +524,7 @@ class RedisUtilsTest {
             String json = serializeHot(staleData, pastExpire);
             doReturn(json).when(valueOperations).get(hotKey);
             doReturn(false).when(valueOperations).setIfAbsent(
-                    "hot:lock:" + hotKey, instanceId, 10L, TimeUnit.SECONDS);
+                    eq("hot:lock:" + hotKey), anyString(), eq(Duration.ofSeconds(10)));
 
             TestDto result = redisUtils.getOrLoadHot(hotKey, TestDto.class, 30, () -> {
                 fail("loader 不应被调用");
@@ -358,12 +540,60 @@ class RedisUtilsTest {
             String hotKey = "hot:product:1";
             doReturn(null).when(valueOperations).get(hotKey);
             doReturn(true).when(valueOperations).setIfAbsent(
-                    "hot:lock:" + hotKey, instanceId, 10L, TimeUnit.SECONDS);
+                    eq("hot:lock:" + hotKey), anyString(), eq(Duration.ofSeconds(10)));
 
             TestDto result = redisUtils.getOrLoadHot(hotKey, TestDto.class, 30, () -> new TestDto("new"));
 
             assertEquals(new TestDto("new"), result);
-            verify(valueOperations).set(eq(hotKey), contains("new"));
+            verify(valueOperations).set(eq(hotKey), contains("new"), anyLong(), any(TimeUnit.class));
+        }
+
+        @Test
+        @DisplayName("热点缓存命中 cached-null 时不触发 loader")
+        void cachedNullHit_skipsLoader() throws Exception {
+            String hotKey = "hot:product:null";
+            String json = serializeHotRecord(null, true, Long.MAX_VALUE, 1L);
+            hotLocalCache.put(hotKey, json);
+
+            TestDto result = redisUtils.getOrLoadHot(hotKey, TestDto.class, 30, () -> {
+                fail("loader 不应被调用");
+                return new TestDto("fresh");
+            });
+
+            assertNull(result);
+        }
+
+        @Test
+        @DisplayName("逻辑过期但仍在 maxStale 窗口内时返回旧值")
+        void staleWithinWindow_returnsStaleValue() throws Exception {
+            String hotKey = "hot:product:stale";
+            long now = System.currentTimeMillis();
+            String staleJson = serializeHotRecord(new TestDto("old"), false, now - 1_000L, now - 2_000L);
+            doReturn(staleJson).when(valueOperations).get(hotKey);
+            doReturn(false).when(valueOperations).setIfAbsent(
+                    eq("hot:lock:" + hotKey), anyString(), eq(Duration.ofSeconds(10)));
+
+            TestDto result = redisUtils.getOrLoadHot(hotKey, TestDto.class, 30, () -> new TestDto("fresh"));
+
+            assertEquals(new TestDto("old"), result);
+        }
+
+        @Test
+        @DisplayName("首次 miss 锁失败时先等待并重试缓存")
+        void firstMiss_lockFail_retriesCacheBeforeFallback() throws Exception {
+            String hotKey = "hot:product:retry";
+            String warmedJson = serializeHotRecord(new TestDto("warm"), false, Long.MAX_VALUE, 1L);
+            doReturn(false).when(valueOperations).setIfAbsent(
+                    eq("hot:lock:" + hotKey), anyString(), eq(Duration.ofSeconds(10)));
+            doReturn(null, warmedJson).when(valueOperations).get(hotKey);
+
+            TestDto result = redisUtils.getOrLoadHot(hotKey, TestDto.class, 30, () -> {
+                fail("loader 不应被调用");
+                return null;
+            });
+
+            assertEquals(new TestDto("warm"), result);
+            verify(valueOperations, times(2)).get(hotKey);
         }
     }
 
@@ -383,40 +613,27 @@ class RedisUtilsTest {
         }
 
         @Test
-        @DisplayName("delete：同时清除 L1 和 L2")
-        void delete_removesFromBoth() {
-            localCache.put("k", "v");
-
+        @DisplayName("delete：发布事务感知的精确失效事件")
+        void delete_publishesInvalidationEvent() {
             redisUtils.delete("k");
 
-            verify(stringRedisTemplate).delete("k");
-            assertNull(localCache.getIfPresent("k"));
+            verify(invalidationPublisher).deleteKey("k");
         }
 
         @Test
-        @DisplayName("deleteByPattern：按通配符匹配删除，不匹配的 key 保留")
-        void deleteByPattern_removesMatchingKeys() {
-            localCache.put("product:1", "a");
-            localCache.put("product:2", "b");
-            localCache.put("user:1", "c");
-            stubScan("product:1", "product:2");
-
+        @DisplayName("deleteByPattern：发布事务感知的 Pattern 失效事件")
+        void deleteByPattern_publishesInvalidationEvent() {
             redisUtils.deleteByPattern("product:*");
 
-            verify(stringRedisTemplate).delete(argThat((java.util.Collection<String> arg) -> arg.containsAll(List.of("product:1", "product:2"))));
-            assertNull(localCache.getIfPresent("product:1"));
-            assertNull(localCache.getIfPresent("product:2"));
-            assertNotNull(localCache.getIfPresent("user:1"), "不匹配的 key 不应被删除");
+            verify(invalidationPublisher).deletePattern("product:*");
         }
 
         @Test
-        @DisplayName("deleteByPattern：SCAN 无匹配 key 时不调用 delete")
-        void deleteByPattern_noMatch_skipsDelete() {
-            stubScan();
+        @DisplayName("invalidateVersion：发布版本递增事件")
+        void invalidateVersion_publishesVersionEvent() {
+            redisUtils.invalidateVersion("cache:version");
 
-            redisUtils.deleteByPattern("x:*");
-
-            verify(stringRedisTemplate, never()).delete(anyCollection());
+            verify(invalidationPublisher).incrementVersion("cache:version");
         }
     }
 
@@ -458,14 +675,15 @@ class RedisUtilsTest {
     // ======================== 防御性校验 ========================
 
     @Nested
-    @DisplayName("防御性校验 — init() 参数校验")
+    @DisplayName("防御性校验 — 普通缓存 init() 参数校验")
     class DefensiveTests {
 
         @ParameterizedTest(name = "maxSize={0}, expireSeconds={1} → 抛 IllegalArgumentException")
         @CsvSource({"0, 60", "-1, 60", "512, 0", "512, -1"})
         void invalidParams_throwsOnInit(long maxSize, long expireSeconds) {
             CacheProperties props = buildProperties(maxSize, expireSeconds);
-            RedisUtils invalid = new RedisUtils(stringRedisTemplate, objectMapper, bloomFilterManager, props, null);
+            MultiLevelCacheService invalid = new MultiLevelCacheService(
+                    stringRedisTemplate, objectMapper, props, new CacheMetrics(null), distributedLock);
 
             assertThrows(IllegalArgumentException.class, invalid::init);
         }
@@ -506,8 +724,12 @@ class RedisUtilsTest {
 
             redisUtils.preloadHotData(List.of("hot:1", "hot:2"), TestDto.class, 30, TestDto::new);
 
-            verify(valueOperations).set(eq("hot:1"), argThat(json -> json.contains("\"name\":\"hot:1\"")));
-            verify(valueOperations).set(eq("hot:2"), argThat(json -> json.contains("\"name\":\"hot:2\"")));
+            verify(valueOperations).set(
+                    eq("hot:1"), argThat(json -> json.contains("\"name\":\"hot:1\"")),
+                    eq(90L), eq(TimeUnit.MINUTES));
+            verify(valueOperations).set(
+                    eq("hot:2"), argThat(json -> json.contains("\"name\":\"hot:2\"")),
+                    eq(90L), eq(TimeUnit.MINUTES));
         }
 
         @Test
@@ -522,7 +744,7 @@ class RedisUtilsTest {
                 return null;
             });
 
-            verify(valueOperations, never()).set(eq("hot:1"), anyString());
+            verify(valueOperations, never()).set(eq("hot:1"), anyString(), anyLong(), any());
         }
     }
 }

@@ -2,6 +2,7 @@ package com.xytgy.teamallbackend.module.user.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.xytgy.teamallbackend.cache.bloom.event.UserCreatedEvent;
 import com.xytgy.teamallbackend.common.ResultCode;
 import com.xytgy.teamallbackend.common.UserRole;
 import com.xytgy.teamallbackend.module.user.dto.AdminUserAddRequest;
@@ -18,17 +19,19 @@ import com.xytgy.teamallbackend.module.user.vo.UserOverviewStatsVO;
 import com.xytgy.teamallbackend.module.user.vo.UserVO;
 import com.xytgy.teamallbackend.module.user.mapper.UserStatsMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import com.xytgy.teamallbackend.module.user.dto.LoginRequest;
 import com.xytgy.teamallbackend.common.mapstruct.CopyMapper;
 import com.xytgy.teamallbackend.module.user.dto.RegisterRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import com.xytgy.teamallbackend.security.SecurityUtils;
 import java.time.format.DateTimeFormatter;
 import com.xytgy.teamallbackend.module.user.cache.UserInfoCache;
 import com.xytgy.teamallbackend.utils.AliyunOSSUtils;
-import com.xytgy.teamallbackend.utils.RedisUtils;
+import com.xytgy.teamallbackend.cache.facade.RedisUtils;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.util.Base64;
@@ -71,8 +74,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     private final AliyunOSSUtils aliyunOSSUtils;
     private final RateLimitService rateLimitService;
     private final RedisUtils redisUtils;
-    
+
     private final UserStatsMapper userStatsMapper;
+
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     public LoginResponse login(LoginRequest request, String clientIp) {
@@ -82,10 +87,11 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         
         // 账号维度速率限制检查，防止暴力破解和撞库攻击
         String identifier = request.getUserAccount();
-        if (rateLimitService.isAccountLocked(identifier)) {
-            throw new ServiceException(ResultCode.TOO_MANY_REQUESTS, "账号已被临时锁定，请15分钟后重试");
-        }
-        if (!rateLimitService.checkAccountRate(identifier)) {
+        long accountRate = rateLimitService.checkAccountRate(identifier);
+        if (!RateLimitService.isAllowed(accountRate)) {
+            if (RateLimitService.isLocked(accountRate)) {
+                throw new ServiceException(ResultCode.TOO_MANY_REQUESTS, "账号已被临时锁定，请15分钟后重试");
+            }
             throw new ServiceException(ResultCode.TOO_MANY_REQUESTS, "登录尝试过于频繁，请稍后再试");
         }
         
@@ -198,6 +204,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     }
 
     @Override
+    @Transactional
     public void register(RegisterRequest request) {
         if (request == null || !StringUtils.hasText(request.getUserAccount()) || !StringUtils.hasText(request.getPassword()) || !StringUtils.hasText(request.getConfirmPassword())) {
             throw new ServiceException(ResultCode.BAD_REQUEST, "账号和密码不能为空");
@@ -222,10 +229,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         user.setStatus(1); // 默认状态正常
 
         this.save(user);
+        eventPublisher.publishEvent(new UserCreatedEvent(user.getId()));
         cacheUserStatus(user.getId(), user.getStatus());
     }
 
     @Override
+    @Transactional
     public Long addUserByAdmin(AdminUserAddRequest request) {
         if (request == null || !StringUtils.hasText(request.getUserAccount())
                 || request.getRole() == null || request.getStatus() == null) {
@@ -252,6 +261,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         user.setPassword(PasswordUtil.encrypt(tempPassword));
         user.setRole(toDbRole(request.getRole()));
         this.save(user);
+        eventPublisher.publishEvent(new UserCreatedEvent(user.getId()));
         cacheUserStatus(user.getId(), user.getStatus());
         return user.getId();
     }

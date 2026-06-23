@@ -3,3 +3,8 @@
 .DS_Store
 target/
 
+
+# IDE
+.idea/
+.vscode/
+*.iml

@@ -1,3 +1,18 @@
+# ======================================================================
+# Nacos 配置中心说明：
+# 以下配置项可按需迁移到 Nacos 配置中心进行统一管理：
+#   - rate-limit.*           （全局限流参数，支持运行时动态调整）
+#   - browser-cache.*        （浏览器缓存规则，支持运行时动态调整）
+#   - flash-sale.*           （秒杀业务参数，支持运行时动态调整）
+#   - cache.local.*          （本地缓存参数）
+#   - cors.*                 （跨域配置）
+#   - mock-pay.*             （模拟支付开关）
+#   - docs.*                 （文档开关）
+#   - knife4j.*              （Knife4j 开关）
+#
+# 数据库、Redis、ES 等基础设施连接配置保留在本地 yaml 中。
+# ======================================================================
+
 spring:
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:dev}
@@ -12,8 +27,6 @@ spring:
     multipart:
       max-file-size: 10MB
       max-request-size: 10MB
-  application:
-    name: tea-mall-backend
   lifecycle:
     timeout-per-shutdown-phase: 30s  # P0#23: 优雅停机等待超时时间
   datasource:
@@ -33,8 +46,14 @@ spring:
       connect-timeout: 5000            # Redis连接超时时间（毫秒）
       lettuce:
         pool:
-          max-active: 8
+          max-active: 32
+          max-idle: 16
+          min-idle: 8
           max-wait: 2000ms  # P1#25: 设置最大等待时间，避免连接池耗尽时无限等待
+  elasticsearch:
+    uris: ${ES_URIS:}
+    username: ${ES_USERNAME:}
+    password: ${ES_PASSWORD:}
 
 mybatis-plus:
   mapper-locations: classpath*:/mapper/**/*.xml
@@ -73,10 +92,26 @@ docs:
 mock-pay:
   enabled: ${MOCK_PAY_ENABLED:false}
 
+# WebSocket 多实例共享配置
+websocket:
+  registry:
+    # Redis Hash key 前缀，存储 userId -> instanceId 映射
+    user-hash-key: ${WS_USER_HASH_KEY:ws:user:instance}
+    # Redis Hash key 前缀，存储 shopId -> instanceId 映射
+    shop-hash-key: ${WS_SHOP_HASH_KEY:ws:shop:instance}
+    # Redis Pub/Sub 频道名
+    channel: ${WS_CHANNEL:ws:broadcast:message}
+
 cache:
   local:
-    max-size: 512
+    max-size: 2048
     expire-seconds: 60
+  bloom:
+    product-expected-insertions: 1000000
+    user-expected-insertions: 1000000
+    false-positive-probability: 0.01
+    rebuild-page-size: 5000
+    rebuild-fixed-delay: 1800000
 
 rocketmq:
   name-server: ${ROCKETMQ_NAMESRV:localhost:9876}
@@ -114,6 +149,9 @@ flash-sale:
     cleanup-interval-ms: 3600000
 
 app:
+  # ES 功能开关（本地开发无需 ES 时可设为 false）
+  elasticsearch:
+    enabled: ${ES_ENABLED:true}
   aliyun:
     oss:
       endpoint: ${ALIYUN_OSS_ENDPOINT:}
@@ -121,8 +159,62 @@ app:
       accessKeySecret: ${ALIYUN_OSS_ACCESS_KEY_SECRET:}
       bucketName: ${ALIYUN_OSS_BUCKET_NAME:}
 
+# Actuator + Prometheus 监控端点 + 分布式链路追踪
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  tracing:
+    sampling:
+      probability: 1.0
+  zipkin:
+    tracing:
+      endpoint: ${ZIPKIN_ENDPOINT:http://localhost:9411/api/v2/spans}
+
 cors:
   # 生产环境请通过环境变量 CORS_ALLOWED_ORIGINS 指定具体域名，不要使用 *
-  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:10086}
 
+# 可信代理 IP 列表（生产环境配置为 Nginx/负载均衡器的内网 IP）
+# 通过环境变量 TRUSTED_PROXIES 覆盖，多个 IP 用逗号分隔
+# 仅当 remoteAddr 属于可信代理时，才信任 X-Forwarded-For 头；否则回退到 remoteAddr
+trusted:
+  proxies: ${TRUSTED_PROXIES:127.0.0.1,0:0:0:0:0:0:0:1}
+
+# 全局 API 限流配置（令牌桶算法，按客户端 IP 限流）
+rate-limit:
+  enabled: ${RATE_LIMIT_ENABLED:true}
+  # 令牌桶容量：允许的突发请求上限
+  capacity: ${RATE_LIMIT_CAPACITY:100}
+  # 每秒补充的令牌数：长期稳定的 QPS 上限
+  rate: ${RATE_LIMIT_RATE:50}
+
+# L3 浏览器缓存层配置
+browser-cache:
+  enabled: ${BROWSER_CACHE_ENABLED:true}
+  static-max-age: 31536000
+  enable-etag: true
+  enable-last-modified: true
+  default-cache-control: "no-cache"
+  no-store-prefixes:
+    - "/api/payment"
+    - "/api/auth"
+    - "/api/feedback"
+  rules:
+    "/api/product/list": "public, max-age=60"
+    "/api/product/reviews": "public, max-age=60"
+    "/api/product": "public, max-age=300"
+    "/api/category": "public, max-age=600"
+    "/api/banner": "public, max-age=600"
+    "/api/store": "public, max-age=120"
+    "/api/user": "private, no-cache"
+    "/api/order": "private, no-cache"
+    "/api/cart": "private, no-cache"
 

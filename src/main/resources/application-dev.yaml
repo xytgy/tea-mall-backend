@@ -1,0 +1,75 @@
+spring:
+  config:
+    activate:
+      on-profile: dev
+  autoconfigure:
+    exclude:
+      - com.alibaba.cloud.nacos.NacosConfigAutoConfiguration
+      - com.alibaba.cloud.nacos.discovery.NacosDiscoveryAutoConfiguration
+      - org.springframework.boot.autoconfigure.elasticsearch.ElasticsearchClientAutoConfiguration
+      - org.springframework.boot.autoconfigure.elasticsearch.ElasticsearchRestClientAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.elasticsearch.ElasticsearchRepositoriesAutoConfiguration
+      - org.springframework.boot.actuate.autoconfigure.tracing.zipkin.ZipkinAutoConfiguration
+  flyway:
+    validate-on-migrate: false
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:cloud_tea_db}?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&characterEncoding=UTF-8
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:dev123456}
+    hikari:
+      maximum-pool-size: 30
+      minimum-idle: 10
+      connection-timeout: 3000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+    read-slave:
+      enabled: ${READ_SLAVE_ENABLED:false}
+      driver-class-name: com.mysql.cj.jdbc.Driver
+      url: jdbc:mysql://${DB_SLAVE_HOST:localhost}:${DB_SLAVE_PORT:3306}/${DB_NAME:cloud_tea_db}?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&characterEncoding=UTF-8
+      username: ${DB_SLAVE_USERNAME:root}
+      password: ${DB_SLAVE_PASSWORD:dev123456}
+      hikari:
+        maximum-pool-size: 30
+        minimum-idle: 10
+        connection-timeout: 3000
+        idle-timeout: 600000
+        max-lifetime: 1800000
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+  devtools:
+    restart:
+      enabled: true
+
+knife4j:
+  enable: true
+
+docs:
+  enabled: true
+
+mock-pay:
+  enabled: true
+
+jwt:
+  # JWT 签名密钥，生产环境必须通过环境变量注入（防止令牌伪造）
+  # 生成方式: openssl rand -base64 32
+  secret: ${JWT_SECRET:dev-only-secret-for-local-development-only}
+
+alipay:
+  enabled: false
+
+app:
+  elasticsearch:
+    enabled: false
+
+rate-limit:
+  login:
+    account-max-per-minute: 10
+    account-max-per-hour: 30
+    account-lockout-minutes: 15
+    ip-max-per-minute: 20
+    ip-max-per-hour: 100
+    ip-lockout-minutes: 15
+

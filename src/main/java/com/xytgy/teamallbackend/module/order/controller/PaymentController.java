@@ -17,8 +17,8 @@ import com.alipay.api.response.AlipayTradeRefundResponse;
 import com.alipay.api.internal.util.AlipaySignature;
 import com.xytgy.teamallbackend.common.Result;
 import com.xytgy.teamallbackend.common.ResultCode;
-import com.xytgy.teamallbackend.mq.constant.MqConstants;
-import com.xytgy.teamallbackend.mq.producer.MqProducer;
+import com.xytgy.teamallbackend.mq.message.order.PaymentSuccessMessage;
+import com.xytgy.teamallbackend.mq.publisher.PaymentEventPublisher;
 import com.xytgy.teamallbackend.security.SecurityUtils;
 import com.xytgy.teamallbackend.config.AlipayConfig;
 import com.xytgy.teamallbackend.exception.ServiceException;
@@ -31,6 +31,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
@@ -38,6 +39,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.HashMap;
+import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @RestController
@@ -57,15 +59,22 @@ public class PaymentController {
 
     private final PaymentRecordService paymentRecordService;
     private final DistributedLock distributedLock;
-    private final MqProducer mqProducer;
+    private final PaymentEventPublisher paymentEventPublisher;
+    private final StringRedisTemplate stringRedisTemplate;
 
-    public PaymentController(AlipayClient alipayClient, AlipayConfig alipayConfig, OrdersService ordersService, PaymentRecordService paymentRecordService, DistributedLock distributedLock, MqProducer mqProducer) {
+    /** 支付回调幂等性 key 前缀 */
+    private static final String IDEMPOTENT_PREFIX = "payment:idempotent:";
+    /** 幂等性 key 过期时间（小时） */
+    private static final long IDEMPOTENT_EXPIRE_HOURS = 24;
+
+    public PaymentController(AlipayClient alipayClient, AlipayConfig alipayConfig, OrdersService ordersService, PaymentRecordService paymentRecordService, DistributedLock distributedLock, PaymentEventPublisher paymentEventPublisher, StringRedisTemplate stringRedisTemplate) {
         this.alipayClient = alipayClient;
         this.alipayConfig = alipayConfig;
         this.ordersService = ordersService;
         this.paymentRecordService = paymentRecordService;
         this.distributedLock = distributedLock;
-        this.mqProducer = mqProducer;
+        this.paymentEventPublisher = paymentEventPublisher;
+        this.stringRedisTemplate = stringRedisTemplate;
     }
 
     @RequestMapping(value = "/alipay/pay", method = {RequestMethod.GET, RequestMethod.POST}, produces = "text/html;charset=UTF-8")
@@ -129,13 +138,16 @@ public class PaymentController {
             order.setPayTime(LocalDateTime.now());
             ordersService.updateById(order);
 
-            // 支付确认成功后发送异步通知消息
-            Map<String, Object> notifyMsg = new HashMap<>();
-            notifyMsg.put("orderId", order.getId());
-            notifyMsg.put("userId", order.getUserId());
-            notifyMsg.put("paymentId", paymentRecord.getId());
-            mqProducer.send(MqConstants.TOPIC_PAYMENT_NOTIFY, MqConstants.TAG_PAY_SUCCESS,
-                    String.valueOf(order.getId()), notifyMsg);
+            boolean published = paymentEventPublisher.publishPaymentSuccess(
+                    PaymentSuccessMessage.builder()
+                            .orderId(order.getId())
+                            .userId(order.getUserId())
+                            .paymentId(paymentRecord.getId())
+                            .build()
+            );
+            if (!published) {
+                log.warn("RocketMQ 不可用，消息未发送");
+            }
         }
     }
 
@@ -151,20 +163,36 @@ public class PaymentController {
     @Operation(summary = "支付宝异步通知")
     @Transactional(rollbackFor = Exception.class)
     public String notifyCallback(@RequestParam Map<String, String> params) {
+        String outTradeNo = null;
+        String idempotentKey = null;
         try {
             if (!verifyNotifyParams(params)) {
                 return STATUS_FAILURE;
             }
 
-            String outTradeNo = params.get("out_trade_no");
+            outTradeNo = params.get("out_trade_no");
             String tradeNo = params.get("trade_no");
             String tradeStatus = params.get("trade_status");
 
+            // Redis 幂等性保护：使用 SETNX 防止同一笔交易的回调被重复处理
+            idempotentKey = IDEMPOTENT_PREFIX + outTradeNo;
+            Boolean isNew = stringRedisTemplate.opsForValue()
+                    .setIfAbsent(idempotentKey, "1", IDEMPOTENT_EXPIRE_HOURS, TimeUnit.HOURS);
+            if (Boolean.FALSE.equals(isNew)) {
+                // 已经处理过该回调，直接返回成功（避免支付宝重复通知）
+                log.info("支付回调幂等拦截, outTradeNo={}", outTradeNo);
+                return STATUS_SUCCESS;
+            }
+
             PaymentRecord paymentRecord = paymentRecordService.getByOutTradeNo(outTradeNo);
             if (paymentRecord == null) {
+                // 数据异常，删除幂等 key 允许重试
+                stringRedisTemplate.delete(idempotentKey);
                 return STATUS_FAILURE;
             }
             if (new BigDecimal(params.get("total_amount")).compareTo(paymentRecord.getTotalAmount()) != 0) {
+                // 金额不匹配，删除幂等 key 允许重试
+                stringRedisTemplate.delete(idempotentKey);
                 return STATUS_FAILURE;
             }
 
@@ -189,6 +217,17 @@ public class PaymentController {
             return STATUS_SUCCESS;
         } catch (AlipayApiException e) {
             log.error("支付宝回调处理异常", e);
+            // 处理失败，删除幂等 key 允许支付宝重试
+            if (idempotentKey != null) {
+                stringRedisTemplate.delete(idempotentKey);
+            }
+            return STATUS_FAILURE;
+        } catch (Exception e) {
+            log.error("支付回调处理异常, outTradeNo={}", outTradeNo, e);
+            // 处理失败，删除幂等 key 允许重试
+            if (idempotentKey != null) {
+                stringRedisTemplate.delete(idempotentKey);
+            }
             return STATUS_FAILURE;
         }
     }
@@ -305,11 +344,7 @@ public class PaymentController {
             throw new ServiceException(ResultCode.BAD_REQUEST, "订单状态不支持退款");
         }
 
-        String lockKey = "payment:refund:" + orderId;
-        if (!distributedLock.tryLock(lockKey)) {
-            throw new ServiceException(ResultCode.BAD_REQUEST, "退款处理中，请勿重复提交");
-        }
-        try {
+        return distributedLock.executeWithLock("payment:refund:" + orderId, () -> {
             PaymentRecord paymentRecord = null;
             if (order.getPaymentId() != null) {
                 paymentRecord = paymentRecordService.getById(order.getPaymentId());
@@ -356,8 +391,6 @@ public class PaymentController {
             } catch (AlipayApiException e) {
                 throw new ServiceException(ResultCode.ERROR, "支付宝接口异常: " + e.getMessage());
             }
-        } finally {
-            distributedLock.unlock(lockKey);
-        }
+        });
     }
 }
