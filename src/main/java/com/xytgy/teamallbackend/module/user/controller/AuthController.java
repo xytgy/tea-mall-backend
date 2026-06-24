@@ -7,6 +7,7 @@ import com.xytgy.teamallbackend.module.user.dto.LoginRequest;
 import com.xytgy.teamallbackend.module.user.dto.RegisterRequest;
 import com.xytgy.teamallbackend.module.user.vo.LoginResponse;
 import com.xytgy.teamallbackend.module.user.service.UserService;
+import com.xytgy.teamallbackend.properties.RateLimitProperties;
 import com.xytgy.teamallbackend.ratelimit.RateLimitService;
 import com.xytgy.teamallbackend.utils.RequestUtils;
 import io.swagger.v3.oas.annotations.Operation;
@@ -27,6 +28,7 @@ public class AuthController {
 
     private final UserService userService;
     private final RateLimitService rateLimitService;
+    private final RateLimitProperties rateLimitProperties;
 
     @PostMapping("/login")
     @Operation(summary = "登录接口")
@@ -36,7 +38,7 @@ public class AuthController {
         // IP 维度限速，防御分布式密码喷射攻击
         String clientIp = RequestUtils.getClientIp(httpRequest);
         long ipResult = rateLimitService.checkIpRate(clientIp);
-        setRateLimitHeaders(httpResponse, ipResult, rateLimitService.getIpMaxPerMinute());
+        setRateLimitHeaders(httpResponse, ipResult, rateLimitProperties.getLogin().getIpMaxPerMinute());
 
         if (!RateLimitService.isAllowed(ipResult)) {
             if (RateLimitService.isLocked(ipResult)) {
@@ -56,7 +58,7 @@ public class AuthController {
                                   HttpServletResponse httpResponse) {
         String clientIp = RequestUtils.getClientIp(httpRequest);
         long ipRate = rateLimitService.checkIpRate(clientIp);
-        setRateLimitHeaders(httpResponse, ipRate, rateLimitService.getIpMaxPerMinute());
+        setRateLimitHeaders(httpResponse, ipRate, rateLimitProperties.getLogin().getIpMaxPerMinute());
 
         if (!RateLimitService.isAllowed(ipRate)) {
             throw new ServiceException(ResultCode.TOO_MANY_REQUESTS, "当前网络请求过于频繁，请稍后再试");

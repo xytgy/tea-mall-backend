@@ -16,7 +16,7 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:cloud_tea_db}?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&characterEncoding=UTF-8
     username: ${DB_USERNAME:root}
-    password: ${DB_PASSWORD:dev123456}
+    password: ${DB_PASSWORD:123456}
     hikari:
       maximum-pool-size: 30
       minimum-idle: 10

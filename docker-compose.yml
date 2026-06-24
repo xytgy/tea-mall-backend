@@ -5,7 +5,7 @@ services:
     container_name: rocketmq-namesrv
     command: nameserver
     ports:
-      - "9876:9876"
+      - "19876:9876"    # Windows 保留端口问题，映射到 19876
     environment:
       JAVA_OPT_EXT: "-Xms256m -Xmx256m"
     healthcheck:

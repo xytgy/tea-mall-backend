@@ -52,7 +52,7 @@ class RateLimitServiceTest {
     @Test
     void accountRateReturnsAllowedWhenUnderMinuteLimit() {
         String identifier = "user1";
-        when(redisTemplate.execute(any(DefaultRedisScript.class), anyList(), anyString(), anyString(), anyString(), anyString()))
+        when(redisTemplate.execute(any(DefaultRedisScript.class), anyList(), anyString(), anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(2L);
 
         long result = service.checkAccountRate(identifier);
@@ -64,7 +64,7 @@ class RateLimitServiceTest {
     @Test
     void accountRateReturnsLimitedWhenOverMinuteLimit() {
         String identifier = "user2";
-        when(redisTemplate.execute(any(DefaultRedisScript.class), anyList(), anyString(), anyString(), anyString(), anyString()))
+        when(redisTemplate.execute(any(DefaultRedisScript.class), anyList(), anyString(), anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(FLAG_LIMITED);
 
         long result = service.checkAccountRate(identifier);
@@ -77,7 +77,7 @@ class RateLimitServiceTest {
     void accountRateReturnsLockedWhenOverHourLimit() {
         String identifier = "user3";
         // First call returns minute OK, second returns locked
-        when(redisTemplate.execute(any(DefaultRedisScript.class), anyList(), anyString(), anyString(), anyString(), anyString()))
+        when(redisTemplate.execute(any(DefaultRedisScript.class), anyList(), anyString(), anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(0L)     // minute window OK
                 .thenReturn(FLAG_LOCKED); // hour window locked
 
@@ -92,13 +92,13 @@ class RateLimitServiceTest {
     void resetAccountAttemptsClearsRedisKeys() {
         service.resetAccountAttempts("user4");
 
-        verify(redisTemplate, times(3)).delete(anyString());
+        verify(redisTemplate).execute(any(DefaultRedisScript.class), anyList());
     }
 
     @Test
     void ipRateReturnsAllowedWhenUnderLimit() {
         String ip = "192.168.1.1";
-        when(redisTemplate.execute(any(DefaultRedisScript.class), anyList(), anyString(), anyString(), anyString(), anyString()))
+        when(redisTemplate.execute(any(DefaultRedisScript.class), anyList(), anyString(), anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(3L);
 
         long result = service.checkIpRate(ip);
@@ -110,7 +110,7 @@ class RateLimitServiceTest {
     @Test
     void ipRateReturnsLimitedWhenOverLimit() {
         String ip = "192.168.1.2";
-        when(redisTemplate.execute(any(DefaultRedisScript.class), anyList(), anyString(), anyString(), anyString(), anyString()))
+        when(redisTemplate.execute(any(DefaultRedisScript.class), anyList(), anyString(), anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(FLAG_LIMITED);
 
         long result = service.checkIpRate(ip);
@@ -123,7 +123,7 @@ class RateLimitServiceTest {
     @Test
     void failsOpenWhenRedisIsDown() {
         String identifier = "user5";
-        when(redisTemplate.execute(any(DefaultRedisScript.class), anyList(), anyString(), anyString(), anyString(), anyString()))
+        when(redisTemplate.execute(any(DefaultRedisScript.class), anyList(), anyString(), anyString(), anyString(), anyString(), anyString()))
                 .thenThrow(new RedisConnectionFailureException("Redis is down"));
 
         long result = service.checkAccountRate(identifier);

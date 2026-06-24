@@ -1,19 +1,25 @@
 package com.xytgy.teamallbackend.ratelimit;
 
+import com.xytgy.teamallbackend.common.RedisSafeRunner;
 import com.xytgy.teamallbackend.properties.RateLimitProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataAccessException;
-import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
+import org.springframework.util.Assert;
 
 import jakarta.annotation.PostConstruct;
 import java.util.List;
-import java.util.function.Supplier;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * 基于 Redis 的登录速率限制服务。
+ * <p>
+ * <strong>职责范围：</strong>仅限登录场景的账号/IP 双维度限流，
+ * 不包含全局限流（令牌桶）或秒杀专用限流。
+ * 如需新增其他场景的限流，请新增独立 Service 或扩展本类。
+ * </p>
  * <p>
  * 双维度策略：
  * - 账号维度：同一账号每分钟最多 N 次，每小时最多 N 次，超限锁定
@@ -60,6 +66,7 @@ public class RateLimitService {
      * ARGV[2] = 窗口大小（毫秒）<br>
      * ARGV[3] = 窗口内允许的最大请求数<br>
      * ARGV[4] = 锁定时间（秒），-1 表示不锁定<br>
+     * ARGV[5] = 请求唯一后缀（防 ZADD member 同一毫秒覆盖）
      * </p>
      * 返回值：&ge; 0 剩余可用次数，-1 限流，-2 锁定
      */
@@ -70,6 +77,7 @@ public class RateLimitService {
             local windowMs = tonumber(ARGV[2])
             local maxRequests = tonumber(ARGV[3])
             local lockoutSecs = tonumber(ARGV[4])
+            local suffix = ARGV[5]
 
             -- 锁定检查
             if lockKey ~= '' then
@@ -93,8 +101,8 @@ public class RateLimitService {
                 return -1
             end
 
-            -- 添加当前请求
-            redis.call('ZADD', windowKey, now, now)
+            -- 添加当前请求（member 追加随机后缀，防止同一毫秒覆盖）
+            redis.call('ZADD', windowKey, now, now .. ":" .. suffix)
             redis.call('EXPIRE', windowKey, math.ceil(windowMs / 1000) + 1)
 
             return maxRequests - count - 1
@@ -103,25 +111,21 @@ public class RateLimitService {
     public static final long FLAG_LIMITED = -1L;
     public static final long FLAG_LOCKED = -2L;
 
-    /**
-     * 获取 IP 维度每分钟最大次数（供调用方设置响应头）。
-     */
-    public int getIpMaxPerMinute() {
-        return loginProps().getIpMaxPerMinute();
-    }
-
-    /**
-     * 获取账号维度每分钟最大次数（供调用方设置响应头）。
-     */
-    public int getAccountMaxPerMinute() {
-        return loginProps().getAccountMaxPerMinute();
-    }
+    /** 原子清除账号限流键的 Lua 脚本。KEYS[1-3] = sw:min, sw:hour, lock */
+    private static final String RESET_SCRIPT = """
+            for i = 1, #KEYS do
+                redis.call('DEL', KEYS[i])
+            end
+            return 1
+            """;
 
     private DefaultRedisScript<Long> slidingWindowScript;
+    private DefaultRedisScript<Long> resetScript;
 
     @PostConstruct
     void init() {
         slidingWindowScript = new DefaultRedisScript<>(SLIDING_WINDOW_SCRIPT, Long.class);
+        resetScript = new DefaultRedisScript<>(RESET_SCRIPT, Long.class);
     }
 
     private RateLimitProperties.Login loginProps() {
@@ -134,7 +138,8 @@ public class RateLimitService {
      * 检查指定账号是否已被锁定。
      */
     public boolean isAccountLocked(String identifier) {
-        return executeWithFallback(() -> {
+        Assert.notNull(identifier, "identifier must not be null");
+        return RedisSafeRunner.execute(() -> {
             String lockKey = keyPrefix + LOGIN_RATE_PREFIX + identifier + ":lock";
             return Boolean.TRUE.equals(stringRedisTemplate.hasKey(lockKey));
         }, false);
@@ -148,68 +153,75 @@ public class RateLimitService {
      * @return 剩余可用次数（&ge; 0 允许继续），或 -1（限流），-2（锁定）
      */
     public long checkAccountRate(String identifier) {
-        return executeWithFallback(() -> {
-            var props = loginProps();
+        Assert.notNull(identifier, "identifier must not be null");
+        var props = loginProps();
+        return checkRate(LOGIN_RATE_PREFIX, identifier,
+                props.getAccountMaxPerMinute(), props.getAccountMaxPerHour(), props.getAccountLockoutMinutes(),
+                rateLimitMetrics::recordAccountRateLimited, rateLimitMetrics::recordAccountLocked, "账号");
+    }
+
+    /**
+     * 记录一次 IP 登录尝试并检查是否超过速率限制。
+     *
+     * @return 剩余可用次数（&ge; 0 允许继续），或 -1（限流），-2（锁定）
+     */
+    public long checkIpRate(String ip) {
+        Assert.notNull(ip, "ip must not be null");
+        var props = loginProps();
+        return checkRate(IP_RATE_PREFIX, ip,
+                props.getIpMaxPerMinute(), props.getIpMaxPerHour(), props.getIpLockoutMinutes(),
+                rateLimitMetrics::recordIpRateLimited, rateLimitMetrics::recordIpLocked, "IP");
+    }
+
+    /**
+     * 滑动窗口限流通用方法（账号/IP 双维度共享）。
+     */
+    private long checkRate(String prefix, String target,
+                           int maxPerMinute, int maxPerHour, int lockoutMinutes,
+                           Runnable onRateLimited, Runnable onLocked, String dimensionLabel) {
+        return RedisSafeRunner.execute(() -> {
             long now = System.currentTimeMillis();
 
-            // 先检查分钟级滑动窗口
-            String minuteKey = keyPrefix + LOGIN_RATE_PREFIX + identifier + ":sw:min";
-            String lockKey = keyPrefix + LOGIN_RATE_PREFIX + identifier + ":lock";
+            String minuteKey = keyPrefix + prefix + target + ":sw:min";
+            String lockKey = keyPrefix + prefix + target + ":lock";
 
             Long minuteResult = stringRedisTemplate.execute(
                     slidingWindowScript,
                     List.of(minuteKey, ""),
                     String.valueOf(now),
                     String.valueOf(MINUTE_WINDOW_MS),
-                    String.valueOf(props.getAccountMaxPerMinute()),
-                    String.valueOf(-1));
+                    String.valueOf(maxPerMinute),
+                    String.valueOf(-1),
+                    uniqueSuffix());
 
-            if (minuteResult == null) return 0L;
             if (minuteResult == FLAG_LIMITED || minuteResult == FLAG_LOCKED) {
-                rateLimitMetrics.recordAccountRateLimited();
+                onRateLimited.run();
                 return FLAG_LIMITED;
             }
 
-            // 再检查小时级滑动窗口
-            String hourKey = keyPrefix + LOGIN_RATE_PREFIX + identifier + ":sw:hour";
+            String hourKey = keyPrefix + prefix + target + ":sw:hour";
 
             Long hourResult = stringRedisTemplate.execute(
                     slidingWindowScript,
                     List.of(hourKey, lockKey),
                     String.valueOf(now),
                     String.valueOf(HOUR_WINDOW_MS),
-                    String.valueOf(props.getAccountMaxPerHour()),
-                    String.valueOf(props.getAccountLockoutMinutes() * 60));
+                    String.valueOf(maxPerHour),
+                    String.valueOf(lockoutMinutes * 60),
+                    uniqueSuffix());
 
-            if (hourResult == null) return minuteResult;
             if (hourResult == FLAG_LOCKED) {
-                rateLimitMetrics.recordAccountLocked();
-                log.warn("账号 {} 触发小时级速率限制，已锁定 {} 分钟",
-                        identifier, props.getAccountLockoutMinutes());
+                onLocked.run();
+                log.warn("{} {} 触发小时级速率限制，已锁定 {} 分钟", dimensionLabel, target, lockoutMinutes);
                 return FLAG_LOCKED;
             }
             if (hourResult == FLAG_LIMITED) {
-                rateLimitMetrics.recordAccountRateLimited();
+                onRateLimited.run();
                 return FLAG_LIMITED;
             }
 
-            // 返回分钟级别的剩余次数（更精确的剩余配额指标）
             return minuteResult;
-        }, 0L);
-    }
-
-    /**
-     * 登录成功后重置账号的失败计数器，防止正常用户被误锁定。
-     */
-    public void resetAccountAttempts(String identifier) {
-        try {
-            stringRedisTemplate.delete(keyPrefix + LOGIN_RATE_PREFIX + identifier + ":sw:min");
-            stringRedisTemplate.delete(keyPrefix + LOGIN_RATE_PREFIX + identifier + ":sw:hour");
-            stringRedisTemplate.delete(keyPrefix + LOGIN_RATE_PREFIX + identifier + ":lock");
-            rateLimitMetrics.recordAccountReset();
-        } catch (DataAccessException e) {
-            log.warn("重置账号限流计数器异常, identifier={}", identifier, e);
-        }
+        }, 0L, rateLimitMetrics::recordRedisFallback);
     }
 
     // ==================== IP 维度 ====================
@@ -218,64 +230,26 @@ public class RateLimitService {
      * 检查指定 IP 是否已被锁定。
      */
     public boolean isIpLocked(String ip) {
-        return executeWithFallback(() -> {
+        Assert.notNull(ip, "ip must not be null");
+        return RedisSafeRunner.execute(() -> {
             String lockKey = keyPrefix + IP_RATE_PREFIX + ip + ":lock";
             return Boolean.TRUE.equals(stringRedisTemplate.hasKey(lockKey));
         }, false);
     }
 
-    /**
-     * 记录一次 IP 登录尝试并检查是否超过速率限制。
-     * <p>使用 Redis Sorted Set 实现滑动窗口，与 {@link #checkAccountRate} 共享同一算法。
-     *
-     * @return 剩余可用次数（&ge; 0 允许继续），或 -1（限流），-2（锁定）
-     */
-    public long checkIpRate(String ip) {
-        return executeWithFallback(() -> {
-            var props = loginProps();
-            long now = System.currentTimeMillis();
-
-            String minuteKey = keyPrefix + IP_RATE_PREFIX + ip + ":sw:min";
-            String lockKey = keyPrefix + IP_RATE_PREFIX + ip + ":lock";
-
-            Long minuteResult = stringRedisTemplate.execute(
-                    slidingWindowScript,
-                    List.of(minuteKey, ""),
-                    String.valueOf(now),
-                    String.valueOf(MINUTE_WINDOW_MS),
-                    String.valueOf(props.getIpMaxPerMinute()),
-                    String.valueOf(-1));
-
-            if (minuteResult == null) return 0L;
-            if (minuteResult == FLAG_LIMITED || minuteResult == FLAG_LOCKED) {
-                rateLimitMetrics.recordIpRateLimited();
-                return FLAG_LIMITED;
-            }
-
-            String hourKey = keyPrefix + IP_RATE_PREFIX + ip + ":sw:hour";
-
-            Long hourResult = stringRedisTemplate.execute(
-                    slidingWindowScript,
-                    List.of(hourKey, lockKey),
-                    String.valueOf(now),
-                    String.valueOf(HOUR_WINDOW_MS),
-                    String.valueOf(props.getIpMaxPerHour()),
-                    String.valueOf(props.getIpLockoutMinutes() * 60));
-
-            if (hourResult == null) return minuteResult;
-            if (hourResult == FLAG_LOCKED) {
-                rateLimitMetrics.recordIpLocked();
-                log.warn("IP {} 触发小时级速率限制，已锁定 {} 分钟",
-                        ip, props.getIpLockoutMinutes());
-                return FLAG_LOCKED;
-            }
-            if (hourResult == FLAG_LIMITED) {
-                rateLimitMetrics.recordIpRateLimited();
-                return FLAG_LIMITED;
-            }
-
-            return minuteResult;
-        }, 0L);
+    /** 登录成功后重置账号的失败计数器，防止正常用户被误锁定。 */
+    public void resetAccountAttempts(String identifier) {
+        Assert.notNull(identifier, "identifier must not be null");
+        try {
+            stringRedisTemplate.execute(resetScript,
+                    List.of(
+                            keyPrefix + LOGIN_RATE_PREFIX + identifier + ":sw:min",
+                            keyPrefix + LOGIN_RATE_PREFIX + identifier + ":sw:hour",
+                            keyPrefix + LOGIN_RATE_PREFIX + identifier + ":lock"));
+            rateLimitMetrics.recordAccountReset();
+        } catch (DataAccessException e) {
+            log.warn("重置账号限流计数器异常, identifier={}", identifier, e);
+        }
     }
 
     /**
@@ -294,23 +268,7 @@ public class RateLimitService {
 
     // ==================== 内部工具 ====================
 
-    /**
-     * 执行 Redis 限流逻辑，Redis 不可用时 fail-open 放行请求。
-     * <p>
-     * 速率限制是辅助安全手段，Redis 宕机时不应导致全站登录不可用。
-     * </p>
-     */
-    private <T> T executeWithFallback(Supplier<T> action, T fallback) {
-        try {
-            return action.get();
-        } catch (RedisConnectionFailureException e) {
-            log.error("Redis 不可用，限流服务 fail-open 放行", e);
-            rateLimitMetrics.recordRedisFallback();
-            return fallback;
-        } catch (DataAccessException e) {
-            log.error("Redis 访问异常，限流服务 fail-open 放行", e);
-            rateLimitMetrics.recordRedisFallback();
-            return fallback;
-        }
+    private static String uniqueSuffix() {
+        return Long.toString(ThreadLocalRandom.current().nextLong(), 36);
     }
 }
