@@ -31,4 +31,5 @@ public interface UserService extends IService<User> {
     String updateAvatar(Long userId, String avatarBase64);
     void updateProfile(Long userId, UserProfileUpdateRequest request);
     UserOverviewStatsVO getUserOverviewStats(Long userId);
+    boolean existsByAccount(String userAccount);
 }

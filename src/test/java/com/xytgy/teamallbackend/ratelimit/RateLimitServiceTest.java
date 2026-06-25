@@ -4,14 +4,12 @@ import com.xytgy.teamallbackend.properties.RateLimitProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
-
-import java.util.List;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import static com.xytgy.teamallbackend.ratelimit.RateLimitService.FLAG_LIMITED;
 import static com.xytgy.teamallbackend.ratelimit.RateLimitService.FLAG_LOCKED;
@@ -20,8 +18,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -45,7 +41,8 @@ class RateLimitServiceTest {
         login.setIpMaxPerHour(20);
         login.setIpLockoutMinutes(15);
 
-        service = new RateLimitService(redisTemplate, properties, new RateLimitMetrics(null), "test");
+        service = new RateLimitService(redisTemplate, properties, new RateLimitMetrics(null));
+        ReflectionTestUtils.setField(service, "activeProfile", "test");
         service.init();
     }
 

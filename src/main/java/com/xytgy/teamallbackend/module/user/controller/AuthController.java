@@ -35,18 +35,28 @@ public class AuthController {
     public Result<LoginResponse> login(@Valid @RequestBody LoginRequest request,
                                        HttpServletRequest httpRequest,
                                        HttpServletResponse httpResponse) {
-        // IP 维度限速，防御分布式密码喷射攻击
         String clientIp = RequestUtils.getClientIp(httpRequest);
+        String userAccount = request.getUserAccount();
+
+        // 1. 账号锁定预检（仅检查锁定状态，不记录次数，防枚举）
+        long lockRemaining = rateLimitService.getAccountLockRemaining(userAccount);
+        if (lockRemaining > 0 && userService.existsByAccount(userAccount)) {
+            throw new ServiceException(ResultCode.ACCOUNT_LOCKED,
+                    "账号已被临时锁定，请" + lockRemaining + "秒后重试");
+        }
+
+        // 2. IP 维度限速，防御分布式密码喷射攻击
         long ipResult = rateLimitService.checkIpRate(clientIp);
         setRateLimitHeaders(httpResponse, ipResult, rateLimitProperties.getLogin().getIpMaxPerMinute());
 
         if (!RateLimitService.isAllowed(ipResult)) {
             if (RateLimitService.isLocked(ipResult)) {
-                throw new ServiceException(ResultCode.TOO_MANY_REQUESTS, "当前网络已被临时限制访问，请稍后再试");
+                throw new ServiceException(ResultCode.IP_LOCKED, "当前网络已被临时限制，请稍后再试");
             }
             throw new ServiceException(ResultCode.TOO_MANY_REQUESTS, "当前网络登录请求过于频繁，请稍后再试");
         }
 
+        // 3. 登录（内部会检查账号级限流）
         LoginResponse data = userService.login(request, clientIp);
         return Result.success("登录成功", data);
     }

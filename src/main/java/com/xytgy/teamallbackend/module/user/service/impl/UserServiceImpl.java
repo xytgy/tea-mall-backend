@@ -90,7 +90,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         long accountRate = rateLimitService.checkAccountRate(identifier);
         if (!RateLimitService.isAllowed(accountRate)) {
             if (RateLimitService.isLocked(accountRate)) {
-                throw new ServiceException(ResultCode.TOO_MANY_REQUESTS, "账号已被临时锁定，请15分钟后重试");
+                throw new ServiceException(ResultCode.ACCOUNT_LOCKED, "账号已被临时锁定，请稍后再试");
             }
             throw new ServiceException(ResultCode.TOO_MANY_REQUESTS, "登录尝试过于频繁，请稍后再试");
         }
@@ -117,6 +117,13 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         rateLimitService.resetAccountAttempts(identifier);
         
         return createLoginResponse(user);
+    }
+
+    @Override
+    public boolean existsByAccount(String userAccount) {
+        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
+        queryWrapper.eq(COLUMN_USER_ACCOUNT, userAccount);
+        return this.count(queryWrapper) > 0;
     }
 
     @Override
