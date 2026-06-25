@@ -114,7 +114,7 @@ cache:
     rebuild-fixed-delay: 1800000
 
 rocketmq:
-  name-server: ${ROCKETMQ_NAMESRV:localhost:19876}
+  name-server: ${ROCKETMQ_NAMESRV:localhost:9876}
   producer:
     group: tea-mall-producer-group
     send-message-timeout: 3000

@@ -12,6 +12,8 @@ public enum ResultCode {
     NOT_FOUND(404, "资源不存在"),
     CONFLICT(409, "资源冲突"),
     TOO_MANY_REQUESTS(429, "请求过于频繁"),
+    ACCOUNT_LOCKED(429, "账号已被临时锁定"),
+    IP_LOCKED(429, "当前网络已被临时限制"),
     ERROR(500, "系统异常");
 
 

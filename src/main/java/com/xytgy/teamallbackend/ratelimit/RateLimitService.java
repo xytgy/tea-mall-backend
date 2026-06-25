@@ -2,7 +2,10 @@ package com.xytgy.teamallbackend.ratelimit;
 
 import com.xytgy.teamallbackend.common.RedisSafeRunner;
 import com.xytgy.teamallbackend.properties.RateLimitProperties;
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
@@ -32,22 +35,18 @@ import java.util.concurrent.ThreadLocalRandom;
  */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class RateLimitService {
 
     private final StringRedisTemplate stringRedisTemplate;
     private final RateLimitProperties rateLimitProperties;
     private final RateLimitMetrics rateLimitMetrics;
-    private final String keyPrefix;
 
-    public RateLimitService(StringRedisTemplate stringRedisTemplate,
-                            RateLimitProperties rateLimitProperties,
-                            RateLimitMetrics rateLimitMetrics,
-                            @org.springframework.beans.factory.annotation.Value("${spring.profiles.active:default}") String activeProfile) {
-        this.stringRedisTemplate = stringRedisTemplate;
-        this.rateLimitProperties = rateLimitProperties;
-        this.rateLimitMetrics = rateLimitMetrics;
-        this.keyPrefix = "rate:" + activeProfile + ":";
-    }
+    @Getter
+    private String keyPrefix;
+
+    @Value("${spring.profiles.active:default}")
+    private String activeProfile;
 
     private static final String LOGIN_RATE_PREFIX = "login:";
     private static final String IP_RATE_PREFIX = "ip:";
@@ -124,6 +123,7 @@ public class RateLimitService {
 
     @PostConstruct
     void init() {
+        this.keyPrefix = "rate:" + activeProfile + ":";
         slidingWindowScript = new DefaultRedisScript<>(SLIDING_WINDOW_SCRIPT, Long.class);
         resetScript = new DefaultRedisScript<>(RESET_SCRIPT, Long.class);
     }
@@ -143,6 +143,20 @@ public class RateLimitService {
             String lockKey = keyPrefix + LOGIN_RATE_PREFIX + identifier + ":lock";
             return Boolean.TRUE.equals(stringRedisTemplate.hasKey(lockKey));
         }, false);
+    }
+
+    /**
+     * 获取账号锁定剩余秒数。
+     *
+     * @return 剩余锁定秒数，0 表示未锁定
+     */
+    public long getAccountLockRemaining(String identifier) {
+        Assert.notNull(identifier, "identifier must not be null");
+        return RedisSafeRunner.execute(() -> {
+            String lockKey = keyPrefix + LOGIN_RATE_PREFIX + identifier + ":lock";
+            Long ttl = stringRedisTemplate.getExpire(lockKey, java.util.concurrent.TimeUnit.SECONDS);
+            return (ttl != null && ttl > 0) ? ttl : 0L;
+        }, 0L);
     }
 
     /**
@@ -183,24 +197,10 @@ public class RateLimitService {
             long now = System.currentTimeMillis();
 
             String minuteKey = keyPrefix + prefix + target + ":sw:min";
+            String hourKey = keyPrefix + prefix + target + ":sw:hour";
             String lockKey = keyPrefix + prefix + target + ":lock";
 
-            Long minuteResult = stringRedisTemplate.execute(
-                    slidingWindowScript,
-                    List.of(minuteKey, ""),
-                    String.valueOf(now),
-                    String.valueOf(MINUTE_WINDOW_MS),
-                    String.valueOf(maxPerMinute),
-                    String.valueOf(-1),
-                    uniqueSuffix());
-
-            if (minuteResult == FLAG_LIMITED || minuteResult == FLAG_LOCKED) {
-                onRateLimited.run();
-                return FLAG_LIMITED;
-            }
-
-            String hourKey = keyPrefix + prefix + target + ":sw:hour";
-
+            // 优先检查小时级锁定（锁定状态应优先于分钟级限流）
             Long hourResult = stringRedisTemplate.execute(
                     slidingWindowScript,
                     List.of(hourKey, lockKey),
@@ -216,6 +216,21 @@ public class RateLimitService {
                 return FLAG_LOCKED;
             }
             if (hourResult == FLAG_LIMITED) {
+                onRateLimited.run();
+                return FLAG_LIMITED;
+            }
+
+            // 再检查分钟级限流
+            Long minuteResult = stringRedisTemplate.execute(
+                    slidingWindowScript,
+                    List.of(minuteKey, ""),
+                    String.valueOf(now),
+                    String.valueOf(MINUTE_WINDOW_MS),
+                    String.valueOf(maxPerMinute),
+                    String.valueOf(-1),
+                    uniqueSuffix());
+
+            if (minuteResult == FLAG_LIMITED || minuteResult == FLAG_LOCKED) {
                 onRateLimited.run();
                 return FLAG_LIMITED;
             }
