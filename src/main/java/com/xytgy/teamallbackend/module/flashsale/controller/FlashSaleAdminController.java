@@ -2,8 +2,12 @@ package com.xytgy.teamallbackend.module.flashsale.controller;
 
 import com.xytgy.teamallbackend.common.BaseController;
 import com.xytgy.teamallbackend.common.Result;
+import com.xytgy.teamallbackend.module.flashsale.dto.FlashSaleAddProductRequest;
+import com.xytgy.teamallbackend.module.flashsale.dto.FlashSaleCreateRequest;
 import com.xytgy.teamallbackend.module.flashsale.dto.FlashSaleRestockRequest;
+import com.xytgy.teamallbackend.module.flashsale.dto.FlashSaleStatusRequest;
 import com.xytgy.teamallbackend.module.flashsale.service.FlashSaleService;
+import com.xytgy.teamallbackend.module.flashsale.vo.FlashSaleVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -28,6 +32,64 @@ import java.util.Map;
 public class FlashSaleAdminController extends BaseController {
 
     private final FlashSaleService flashSaleService;
+
+    @GetMapping("/list")
+    @Operation(summary = "获取秒杀活动列表")
+    @ApiResponse(responseCode = "200", description = "成功")
+    public Result<List<FlashSaleVO>> list() {
+        return Result.success(flashSaleService.listAllSales());
+    }
+
+
+    @PostMapping("/create")
+    @Operation(summary = "创建秒杀活动")
+    @ApiResponse(responseCode = "200", description = "创建成功")
+    @ApiResponse(responseCode = "400", description = "参数错误")
+    public Result<Long> create(@Valid @RequestBody FlashSaleCreateRequest request) {
+        Long operatorId = currentUserId();
+        Long id = flashSaleService.createFlashSale(request, operatorId);
+        return Result.success("创建成功", id);
+    }
+
+    @GetMapping("/{id}")
+    @Operation(summary = "获取秒杀活动详情")
+    @ApiResponse(responseCode = "200", description = "成功")
+    @ApiResponse(responseCode = "404", description = "活动不存在")
+    public Result<FlashSaleVO> getDetail(@PathVariable Long id) {
+        return Result.success(flashSaleService.getDetail(id));
+    }
+
+    @PostMapping("/{id}/products")
+    @Operation(summary = "添加商品到秒杀活动")
+    @ApiResponse(responseCode = "200", description = "添加成功")
+    @ApiResponse(responseCode = "400", description = "参数错误")
+    public Result<Void> addProduct(@PathVariable Long id,
+                                   @Valid @RequestBody FlashSaleAddProductRequest request) {
+        Long operatorId = currentUserId();
+        flashSaleService.addProduct(id, request, operatorId);
+        return Result.success();
+    }
+
+    @PutMapping("/{id}/status")
+    @Operation(summary = "修改秒杀活动状态")
+    @ApiResponse(responseCode = "200", description = "修改成功")
+    @ApiResponse(responseCode = "400", description = "参数错误")
+    public Result<Void> updateStatus(@PathVariable Long id,
+                                     @Valid @RequestBody FlashSaleStatusRequest request) {
+        Long operatorId = currentUserId();
+        flashSaleService.updateStatus(id, request.getStatus(), operatorId);
+        return Result.success();
+    }
+
+    @DeleteMapping("/{id}")
+    @Operation(summary = "删除秒杀活动")
+    @ApiResponse(responseCode = "200", description = "删除成功")
+    @ApiResponse(responseCode = "404", description = "活动不存在")
+    public Result<Void> delete(@PathVariable Long id) {
+        Long operatorId = currentUserId();
+        flashSaleService.deleteFlashSale(id, operatorId);
+        return Result.success();
+    }
 
     @PostMapping("/warmup/{id}")
     @Operation(summary = "预热库存到 Redis + 本地缓存")

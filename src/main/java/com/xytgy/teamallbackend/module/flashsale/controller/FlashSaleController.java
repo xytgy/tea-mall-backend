@@ -38,7 +38,6 @@ public class FlashSaleController extends BaseController {
     @ApiResponse(responseCode = "200", description = "成功")
     @ApiResponse(responseCode = "401", description = "未登录")
     public Result<List<FlashSaleVO>> list() {
-        Long userId = currentUserId();
         return Result.success(flashSaleService.listActiveSales());
     }
 
@@ -47,7 +46,6 @@ public class FlashSaleController extends BaseController {
     @ApiResponse(responseCode = "200", description = "成功")
     @ApiResponse(responseCode = "404", description = "活动不存在")
     public Result<List<FlashSaleProductVO>> products(@PathVariable Long id) {
-        Long userId = currentUserId();
         return Result.success(flashSaleService.getProducts(id));
     }
 

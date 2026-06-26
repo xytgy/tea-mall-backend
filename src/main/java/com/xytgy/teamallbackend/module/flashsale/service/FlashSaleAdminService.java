@@ -3,6 +3,8 @@ package com.xytgy.teamallbackend.module.flashsale.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.xytgy.teamallbackend.common.ResultCode;
+import com.xytgy.teamallbackend.module.flashsale.dto.FlashSaleAddProductRequest;
+import com.xytgy.teamallbackend.module.flashsale.dto.FlashSaleCreateRequest;
 import com.xytgy.teamallbackend.mq.constant.MqConstants;
 import com.xytgy.teamallbackend.mq.config.FlashSaleCacheManager;
 import com.xytgy.teamallbackend.mq.message.flashsale.FlashOrderCreateMessage;
@@ -386,5 +388,132 @@ public class FlashSaleAdminService {
         auditLog.setDetail(detail);
         auditLog.setCreateTime(LocalDateTime.now());
         flashSaleAuditLogMapper.insert(auditLog);
+    }
+
+    public List<FlashSaleVO> listAllSales() {
+        List<FlashSale> sales = flashSaleMapper.selectList(
+                new LambdaQueryWrapper<FlashSale>()
+                        .orderByDesc(FlashSale::getCreateTime)
+        );
+        return sales.stream().map(this::toFlashSaleVO).toList();
+    }
+
+
+    public Long createFlashSale(FlashSaleCreateRequest request, Long operatorId) {
+        if (request.getStartTime().isAfter(request.getEndTime())) {
+            throw new ServiceException(ResultCode.BAD_REQUEST, "开始时间必须早于结束时间");
+        }
+
+        FlashSale flashSale = new FlashSale();
+        flashSale.setTitle(request.getTitle());
+        flashSale.setStartTime(request.getStartTime());
+        flashSale.setEndTime(request.getEndTime());
+        flashSale.setStatus(0);
+        flashSale.setCreateTime(LocalDateTime.now());
+        flashSale.setUpdateTime(LocalDateTime.now());
+        flashSaleMapper.insert(flashSale);
+
+        if (request.getProducts() != null && !request.getProducts().isEmpty()) {
+            for (FlashSaleCreateRequest.FlashSaleProductItem item : request.getProducts()) {
+                addProductToSale(flashSale.getId(), item.getProductId(), item.getFlashPrice(),
+                        item.getTotalStock(), item.getMaxPerUser(), operatorId);
+            }
+        }
+
+        saveAuditLog(flashSale.getId(), operatorId, "CREATE", "创建秒杀活动: " + request.getTitle());
+        log.info("秒杀活动创建: id={}, title={}, 操作人={}", flashSale.getId(), request.getTitle(), operatorId);
+        return flashSale.getId();
+    }
+
+    public void addProduct(Long flashSaleId, FlashSaleAddProductRequest request, Long operatorId) {
+        FlashSale flashSale = flashSaleMapper.selectById(flashSaleId);
+        if (flashSale == null) {
+            throw new ServiceException(ResultCode.NOT_FOUND, "活动不存在");
+        }
+        if (flashSale.getStatus() != 0) {
+            throw new ServiceException(ResultCode.BAD_REQUEST, "只能向未开始的活动添加商品");
+        }
+
+        addProductToSale(flashSaleId, request.getProductId(), request.getFlashPrice(),
+                request.getTotalStock(), request.getMaxPerUser(), operatorId);
+
+        saveAuditLog(flashSaleId, operatorId, "ADD_PRODUCT", "添加商品 " + request.getProductId());
+        log.info("秒杀活动添加商品: flashSaleId={}, productId={}, 操作人={}", flashSaleId, request.getProductId(), operatorId);
+    }
+
+    public void updateStatus(Long flashSaleId, Integer status, Long operatorId) {
+        FlashSale flashSale = flashSaleMapper.selectById(flashSaleId);
+        if (flashSale == null) {
+            throw new ServiceException(ResultCode.NOT_FOUND, "活动不存在");
+        }
+        if (flashSale.getStatus() == 2) {
+            throw new ServiceException(ResultCode.BAD_REQUEST, "已结束的活动不能修改状态");
+        }
+
+        flashSale.setStatus(status);
+        flashSale.setUpdateTime(LocalDateTime.now());
+        flashSaleMapper.updateById(flashSale);
+
+        String statusName = switch (status) {
+            case 0 -> "未开始";
+            case 1 -> "进行中";
+            case 2 -> "已结束";
+            default -> "未知";
+        };
+        saveAuditLog(flashSaleId, operatorId, "UPDATE_STATUS", "修改状态为: " + statusName);
+        log.info("秒杀活动状态修改: flashSaleId={}, status={}, 操作人={}", flashSaleId, status, operatorId);
+    }
+
+    public FlashSaleVO getDetail(Long flashSaleId) {
+        FlashSale flashSale = flashSaleMapper.selectById(flashSaleId);
+        if (flashSale == null) {
+            throw new ServiceException(ResultCode.NOT_FOUND, "活动不存在");
+        }
+        FlashSaleVO vo = toFlashSaleVO(flashSale);
+        vo.setProducts(getProducts(flashSaleId));
+        return vo;
+    }
+
+    public void deleteFlashSale(Long flashSaleId, Long operatorId) {
+        FlashSale flashSale = flashSaleMapper.selectById(flashSaleId);
+        if (flashSale == null) {
+            throw new ServiceException(ResultCode.NOT_FOUND, "活动不存在");
+        }
+
+        flashSaleMapper.deleteById(flashSaleId);
+        saveAuditLog(flashSaleId, operatorId, "DELETE", "删除秒杀活动");
+        log.info("秒杀活动删除: flashSaleId={}, 操作人={}", flashSaleId, operatorId);
+    }
+
+    private void addProductToSale(Long flashSaleId, Long productId, BigDecimal flashPrice,
+                                  Integer totalStock, Integer maxPerUser, Long operatorId) {
+        Product product = productMapper.selectById(productId);
+        if (product == null) {
+            throw new ServiceException(ResultCode.NOT_FOUND, "商品不存在: " + productId);
+        }
+        if (flashPrice.compareTo(product.getPrice()) >= 0) {
+            throw new ServiceException(ResultCode.BAD_REQUEST, "秒杀价必须小于原价");
+        }
+        if (totalStock > product.getStock()) {
+            throw new ServiceException(ResultCode.BAD_REQUEST, "库存不能超过商品实际库存");
+        }
+
+        Long count = flashSaleProductMapper.selectCount(
+                new LambdaQueryWrapper<FlashSaleProduct>()
+                        .eq(FlashSaleProduct::getFlashSaleId, flashSaleId)
+                        .eq(FlashSaleProduct::getProductId, productId));
+        if (count > 0) {
+            throw new ServiceException(ResultCode.BAD_REQUEST, "该商品已添加到此活动");
+        }
+
+        FlashSaleProduct fp = new FlashSaleProduct();
+        fp.setFlashSaleId(flashSaleId);
+        fp.setProductId(productId);
+        fp.setFlashPrice(flashPrice);
+        fp.setTotalStock(totalStock);
+        fp.setSoldCount(0);
+        fp.setMaxPerUser(maxPerUser);
+        fp.setCreateTime(LocalDateTime.now());
+        flashSaleProductMapper.insert(fp);
     }
 }

@@ -1,7 +1,9 @@
 package com.xytgy.teamallbackend.module.flashsale.service;
 
 import com.xytgy.teamallbackend.module.flashsale.dto.CaptchaVerifyRequest;
+import com.xytgy.teamallbackend.module.flashsale.dto.FlashSaleAddProductRequest;
 import com.xytgy.teamallbackend.module.flashsale.dto.FlashSaleBuyRequest;
+import com.xytgy.teamallbackend.module.flashsale.dto.FlashSaleCreateRequest;
 import com.xytgy.teamallbackend.module.flashsale.vo.FlashSaleProductVO;
 import com.xytgy.teamallbackend.module.flashsale.vo.FlashSaleVO;
 import lombok.RequiredArgsConstructor;
@@ -107,6 +109,11 @@ public class FlashSaleServiceImpl implements FlashSaleService {
     }
 
     @Override
+    public List<FlashSaleVO> listAllSales() {
+        return adminService.listAllSales();
+    }
+
+    @Override
     public void updateRateConfig(Long frequentThreshold, Long maliciousThreshold, Long blacklistMinutes, Long operatorId) {
         adminService.updateRateConfig(frequentThreshold, maliciousThreshold, blacklistMinutes, operatorId);
     }
@@ -119,5 +126,32 @@ public class FlashSaleServiceImpl implements FlashSaleService {
     @Override
     public void addWhitelist(Long flashSaleId, List<Long> userIds, Long operatorId) {
         adminService.addWhitelist(flashSaleId, userIds, operatorId);
+    }
+
+    // ========== CRUD 管理 ==========
+
+    @Override
+    public Long createFlashSale(FlashSaleCreateRequest request, Long operatorId) {
+        return adminService.createFlashSale(request, operatorId);
+    }
+
+    @Override
+    public void addProduct(Long flashSaleId, FlashSaleAddProductRequest request, Long operatorId) {
+        adminService.addProduct(flashSaleId, request, operatorId);
+    }
+
+    @Override
+    public void updateStatus(Long flashSaleId, Integer status, Long operatorId) {
+        adminService.updateStatus(flashSaleId, status, operatorId);
+    }
+
+    @Override
+    public FlashSaleVO getDetail(Long flashSaleId) {
+        return adminService.getDetail(flashSaleId);
+    }
+
+    @Override
+    public void deleteFlashSale(Long flashSaleId, Long operatorId) {
+        adminService.deleteFlashSale(flashSaleId, operatorId);
     }
 }

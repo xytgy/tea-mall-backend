@@ -1,7 +1,9 @@
 package com.xytgy.teamallbackend.module.flashsale.service;
 
 import com.xytgy.teamallbackend.module.flashsale.dto.CaptchaVerifyRequest;
+import com.xytgy.teamallbackend.module.flashsale.dto.FlashSaleAddProductRequest;
 import com.xytgy.teamallbackend.module.flashsale.dto.FlashSaleBuyRequest;
+import com.xytgy.teamallbackend.module.flashsale.dto.FlashSaleCreateRequest;
 import com.xytgy.teamallbackend.module.flashsale.vo.FlashSaleProductVO;
 import com.xytgy.teamallbackend.module.flashsale.vo.FlashSaleVO;
 
@@ -45,7 +47,20 @@ public interface FlashSaleService {
 
     void compensateFailedOrder(Long failedOrderId, BigDecimal amount, String remark, Long operatorId);
 
+    List<FlashSaleVO> listAllSales();
+
+
     void manualProcessFailedOrder(Long failedOrderId, String remark, Long operatorId);
+
+    Long createFlashSale(FlashSaleCreateRequest request, Long operatorId);
+
+    void addProduct(Long flashSaleId, FlashSaleAddProductRequest request, Long operatorId);
+
+    void updateStatus(Long flashSaleId, Integer status, Long operatorId);
+
+    FlashSaleVO getDetail(Long flashSaleId);
+
+    void deleteFlashSale(Long flashSaleId, Long operatorId);
 
     record CaptchaResult(String uuid, String imageBase64) {}
 
