@@ -2,7 +2,6 @@ package com.xytgy.teamallbackend.module.flashsale.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.xytgy.teamallbackend.common.ResultCode;
-import com.xytgy.teamallbackend.mq.constant.MqConstants;
 import com.xytgy.teamallbackend.mq.config.FlashSaleCacheManager;
 import com.xytgy.teamallbackend.mq.message.flashsale.FlashOrderCreateMessage;
 import com.xytgy.teamallbackend.mq.publisher.FlashOrderPublisher;
@@ -68,7 +67,7 @@ public class FlashSaleCoreService {
 
     // P0#1: 降级模式限流计数器，使用定时器每秒原子重置，消除读-改-写竞态
     private final AtomicInteger degradeCounter = new AtomicInteger(0);
-    private static final int DEGRADE_MAX_PER_SEC = 100;
+        private static final int DEGRADE_MAX_PER_SEC = 100;
     private static final ScheduledExecutorService DEGRADE_RESETTER =
             Executors.newSingleThreadScheduledExecutor(r -> {
                 Thread t = new Thread(r, "degrade-counter-reset");

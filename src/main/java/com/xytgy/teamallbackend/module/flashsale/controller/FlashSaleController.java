@@ -4,6 +4,7 @@ import com.xytgy.teamallbackend.common.BaseController;
 import com.xytgy.teamallbackend.common.Result;
 import com.xytgy.teamallbackend.module.flashsale.dto.CaptchaVerifyRequest;
 import com.xytgy.teamallbackend.module.flashsale.dto.FlashSaleBuyRequest;
+import com.xytgy.teamallbackend.module.flashsale.service.FlashSaleCoreServicePractice;
 import com.xytgy.teamallbackend.module.flashsale.service.FlashSaleService;
 import com.xytgy.teamallbackend.module.flashsale.service.FlashSaleService.CaptchaResult;
 import com.xytgy.teamallbackend.module.flashsale.service.FlashSaleService.FlashSaleBuyResult;
@@ -32,7 +33,7 @@ import java.util.Map;
 public class FlashSaleController extends BaseController {
 
     private final FlashSaleService flashSaleService;
-
+    private final FlashSaleCoreServicePractice flashSaleCoreServicePractice;
     @GetMapping("/list")
     @Operation(summary = "秒杀活动列表")
     @ApiResponse(responseCode = "200", description = "成功")
@@ -61,6 +62,18 @@ public class FlashSaleController extends BaseController {
         return Result.success(flashSaleService.generateCaptcha(userId));
     }
 
+    @GetMapping("/captchapratice")
+    @Operation(summary = "练习获取秒杀验证码图片")
+    @ApiResponse(
+            responseCode = "200",
+            description = "成功",
+            content = @Content(schema = @Schema(type = "object"))
+    )
+    public Result<CaptchaResult> captchapratice() {
+
+        return Result.success(flashSaleCoreServicePractice.generateCaptchaPractice(currentUserId()));
+    }
+
     @PostMapping("/captcha/verify")
     @Operation(summary = "验证码换秒杀 Token")
     @ApiResponse(responseCode = "200", description = "验证通过，返回秒杀 token")
@@ -70,6 +83,16 @@ public class FlashSaleController extends BaseController {
         return Result.success(flashSaleService.verifyCaptcha(userId, request));
     }
 
+    @PostMapping("/captcha/verifyPratice")
+    @Operation(summary = "练习版验证码换秒杀 Token")
+    @ApiResponse(responseCode = "200", description = "验证通过，返回秒杀 token")
+    @ApiResponse(responseCode = "400", description = "验证码错误或已过期")
+    public Result<String> verifyCaptchaPratice(@Valid @RequestBody CaptchaVerifyRequest request) {
+        Long userId = currentUserId();
+        return Result.success(flashSaleCoreServicePractice.verifyCaptchaPractice(userId, request));
+    }
+
+
     @PostMapping("/buy")
     @Operation(summary = "立即抢购")
     @ApiResponse(responseCode = "200", description = "下单成功")
@@ -78,6 +101,16 @@ public class FlashSaleController extends BaseController {
     public Result<FlashSaleBuyResult> buy(@Valid @RequestBody FlashSaleBuyRequest request) {
         Long userId = currentUserId();
         return Result.success(flashSaleService.buy(userId, request));
+    }
+
+    @PostMapping("/buypratice")
+    @Operation(summary = "练习版立即抢购")
+    @ApiResponse(responseCode = "200", description = "下单成功")
+    @ApiResponse(responseCode = "400", description = "库存不足 / 参数错误")
+    @ApiResponse(responseCode = "429", description = "请求过于频繁")
+    public Result<FlashSaleBuyResult> buypratice(@Valid @RequestBody FlashSaleBuyRequest request) {
+        Long userId = currentUserId();
+        return Result.success(flashSaleCoreServicePractice.buy(userId, request));
     }
 
     @GetMapping("/result/{orderId}")
