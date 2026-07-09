@@ -26,8 +26,11 @@ logs/
 # Docker volumes (local data)
 docker/volumes/
 
-# SkyWalking Agent (large binary, use release package)
-skywalking-agent/*.tgz
+# SkyWalking Agent (large binary, download separately)
+skywalking-agent/
+
+# Demo (not part of main project)
+demo-service/
 
 # Maven wrapper (optional, some projects track it)
 .mvn/wrapper/maven-wrapper.jar

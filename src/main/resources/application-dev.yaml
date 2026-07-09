@@ -11,7 +11,7 @@ spring:
     validate-on-migrate: false
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:cloud_tea_db}?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&characterEncoding=UTF-8
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3307}/${DB_NAME:cloud_tea_db}?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&characterEncoding=UTF-8
     username: ${DB_USERNAME:root}
     password: ${DB_PASSWORD:123456}
     hikari:
@@ -23,7 +23,7 @@ spring:
     read-slave:
       enabled: ${READ_SLAVE_ENABLED:false}
       driver-class-name: com.mysql.cj.jdbc.Driver
-      url: jdbc:mysql://${DB_SLAVE_HOST:localhost}:${DB_SLAVE_PORT:3306}/${DB_NAME:cloud_tea_db}?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&characterEncoding=UTF-8
+      url: jdbc:mysql://${DB_SLAVE_HOST:localhost}:${DB_SLAVE_PORT:3307}/${DB_NAME:cloud_tea_db}?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&characterEncoding=UTF-8
       username: ${DB_SLAVE_USERNAME:root}
       password: ${DB_SLAVE_PASSWORD:dev123456}
       hikari:
@@ -35,7 +35,7 @@ spring:
   data:
     redis:
       host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
+      port: ${REDIS_PORT:6380}
       password: ${REDIS_PASSWORD:redis123456}
   kafka:
     bootstrap-servers: localhost:9092
