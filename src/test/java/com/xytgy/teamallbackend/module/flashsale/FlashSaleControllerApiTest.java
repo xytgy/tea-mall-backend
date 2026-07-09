@@ -1,7 +1,6 @@
 package com.xytgy.teamallbackend.module.flashsale;
 
 import com.xytgy.teamallbackend.module.flashsale.dto.CaptchaVerifyRequest;
-import com.xytgy.teamallbackend.module.flashsale.dto.FlashSaleBuyRequest;
 import com.xytgy.teamallbackend.module.flashsale.service.FlashSaleCoreServicePractice;
 import com.xytgy.teamallbackend.module.flashsale.service.FlashSaleService;
 import org.junit.jupiter.api.BeforeEach;
@@ -44,6 +43,25 @@ public class FlashSaleControllerApiTest {
 
     // ========== 测试获取验证码接口 ==========
 
+    /**
+     * API测试：测试获取验证码接口
+     * 
+     * 测试目的：验证GET /api/flash-sale/captchapratice接口是否正常工作
+     * 测试方式：使用MockMvc模拟HTTP请求
+     * 测试范围：测试Controller层的HTTP请求和响应
+     * 
+     * 测试步骤：
+     *   1. 发送GET请求到验证码接口
+     *   2. 带上JWT Token进行认证
+     *   3. 验证响应状态码为200
+     *   4. 验证响应数据格式正确
+     * 
+     * 预期结果：
+     *   - HTTP状态码：200 OK
+     *   - success字段：true
+     *   - data.uuid：不为空
+     *   - data.imageBase64：以"data:image/png;base64,"开头
+     */
     @Test
     public void testGetCaptcha_API() throws Exception {
         mockMvc.perform(get("/api/flash-sale/captchapratice")

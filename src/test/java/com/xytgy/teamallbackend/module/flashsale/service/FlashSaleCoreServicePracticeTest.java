@@ -5,7 +5,11 @@ import com.xytgy.teamallbackend.module.flashsale.dto.FlashSaleBuyRequest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.test.context.ActiveProfiles;
 
 import java.math.BigDecimal;
 
@@ -13,16 +17,49 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-@SpringBootTest
+/**
+ * 秒杀系统集成测试
+ * 
+ * 测试类型：集成测试（@SpringBootTest）
+ * 测试范围：完整的业务流程，包括验证码、购买、库存、订单等
+ * 测试环境：真实的MySQL数据库和Redis
+ * 
+ * 测试用例分类：
+ * 1. 正向测试：测试正常流程是否成功
+ * 2. 逆向测试：测试异常流程是否正确处理
+ * 3. 数据完整性测试：验证数据一致性
+ * 4. 边界测试：测试边界条件
+ * 5. 异常输入测试：测试参数校验
+ * 6. 安全测试：测试SQL注入等安全问题
+ * 7. 性能测试：测试系统性能
+ * 8. 并发测试：测试并发场景
+ */
+@SpringBootTest(properties = {"spring.devtools.restart.enabled=false"})
+@ActiveProfiles("dev")
 public class FlashSaleCoreServicePracticeTest {
-    
+
+    // ========== 测试常量 ==========
+
+    /** 测试用户ID */
     private static final Long TEST_USER_ID = 17L;
+    
+    /** 测试用户ID2（用于测试用户不匹配） */
     private static final Long TEST_USER_ID_2 = 18L;
+    
+    /** 测试秒杀活动ID */
     private static final Long TEST_FLASH_SALE_ID = 1L;
+    
+    /** 测试商品ID */
     private static final Long TEST_PRODUCT_ID = 9L;
+    
+    /** 不存在的活动ID */
     private static final Long NOT_EXIST_FLASH_SALE_ID = 999L;
+    
+    /** 不存在的商品ID */
     private static final Long NOT_EXIST_PRODUCT_ID = 999L;
-    private static final Long PRODUCT_NOT_IN_ACTIVITY = 10L;  // 商品ID=10属于活动ID=2，不属于活动ID=1
+    
+    /** 不属于当前活动的商品ID（商品ID=10属于活动ID=2，不属于活动ID=1） */
+    private static final Long PRODUCT_NOT_IN_ACTIVITY = 10L;
 
     @Autowired
     private FlashSaleCoreServicePractice flashSaleCoreServicePractice;
@@ -30,39 +67,41 @@ public class FlashSaleCoreServicePracticeTest {
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
 
+    /**
+     * 测试使用无效的captchaToken购买
+     * 
+     * 测试目的：验证captchaToken校验机制
+     * 测试步骤：
+     *   1. 构建购买请求，使用无效的captchaToken
+     *   2. 调用buy方法
+     *   3. 验证返回结果为FAIL
+     * 预期结果：返回FAIL，提示"验证码无效或已过期"
+     */
     @Test
     public void testBuyWithInvalidToken() {
         FlashSaleBuyRequest request = new FlashSaleBuyRequest();
         request.setProductId(10L);
         request.setFlashSaleId(TEST_FLASH_SALE_ID);
-        request.setCaptchaToken("test-token");
+        request.setCaptchaToken("test-token");  // 无效的token
         FlashSaleService.FlashSaleBuyResult result = flashSaleCoreServicePractice.buy(TEST_USER_ID, request);
         System.out.println("结果: " + result);
         assertEquals("FAIL", result.status());
     }
 
-    @Test
-    public void testGenerateCaptcha() {
-        // 测试验证码生成接口
-        
-        // 调用验证码生成方法
-        FlashSaleService.CaptchaResult result = flashSaleCoreServicePractice.generateCaptchaPractice(TEST_USER_ID);
-        
-        // 打印结果
-        System.out.println("=== 验证码生成测试 ===");
-        System.out.println("uuid: " + result.uuid());
-        System.out.println("imageBase64前100字符: " + result.imageBase64().substring(0, Math.min(100, result.imageBase64().length())));
-        System.out.println("图片Base64总长度: " + result.imageBase64().length());
-        
-        // 验证结果
-        assertNotNull(result.uuid(), "UUID不能为空");
-        assertNotNull(result.imageBase64(), "图片Base64不能为空");
-        assertTrue(result.imageBase64().startsWith("data:image/png;base64,"), "图片格式必须是PNG Base64");
-        assertTrue(result.imageBase64().length() > 100, "图片Base64长度必须大于100");
-        
-        System.out.println("=== 验证码生成测试通过 ===");
-    }
-
+    /**
+     * 测试完整的正向流程（成功场景）
+     * 
+     * 测试目的：验证从获取验证码到购买成功的完整流程
+     * 测试步骤：
+     *   1. 生成验证码
+     *   2. 从Redis获取验证码值
+     *   3. 验证验证码，获取captchaToken
+     *   4. 使用captchaToken调用buy方法
+     *   5. 验证购买结果
+     * 预期结果：
+     *   - 购买成功
+     *   - 返回订单ID
+     */
     @Test
     public void testFullFlowSuccess() {
         System.out.println("=== 步骤1：生成验证码 ===");
@@ -103,58 +142,17 @@ public class FlashSaleCoreServicePracticeTest {
     }
 
     // ========== 逆向测试：验证码相关 ==========
-
-    @Test
-    public void testCaptchaExpired() {
-        System.out.println("=== 测试验证码过期 ===");
-        
-        // 步骤1：生成验证码
-        FlashSaleService.CaptchaResult captchaResult = flashSaleCoreServicePractice.generateCaptchaPractice(TEST_USER_ID);
-        String uuid = captchaResult.uuid();
-        System.out.println("uuid: " + uuid);
-        
-        // 步骤2：手动删除Redis中的验证码（模拟过期）
-        stringRedisTemplate.delete("captcha:" + uuid);
-        System.out.println("已删除Redis中的验证码");
-        
-        // 步骤3：尝试验证验证码
-        CaptchaVerifyRequest verifyRequest = new CaptchaVerifyRequest();
-        verifyRequest.setUuid(uuid);
-        verifyRequest.setCode("1234");  // 随便填一个
-        String result = flashSaleCoreServicePractice.verifyCaptchaPractice(TEST_USER_ID, verifyRequest);
-        System.out.println("验证结果: " + result);
-        
-        // 验证：应该返回"验证码已过期"
-        assertEquals("验证码已过期", result, "验证码过期时应该返回'验证码已过期'");
-        System.out.println("=== 验证码过期测试通过 ===");
-    }
-
-    @Test
-    public void testCaptchaWrong() {
-        System.out.println("=== 测试验证码错误 ===");
-        
-        // 步骤1：生成验证码
-        FlashSaleService.CaptchaResult captchaResult = flashSaleCoreServicePractice.generateCaptchaPractice(TEST_USER_ID);
-        String uuid = captchaResult.uuid();
-        String correctCode = stringRedisTemplate.opsForValue().get("captcha:" + uuid);
-        System.out.println("正确验证码: " + correctCode);
-        
-        // 步骤2：使用错误的验证码
-        CaptchaVerifyRequest verifyRequest = new CaptchaVerifyRequest();
-        verifyRequest.setUuid(uuid);
-        verifyRequest.setCode("0000");  // 故意输错
-        String result = flashSaleCoreServicePractice.verifyCaptchaPractice(TEST_USER_ID, verifyRequest);
-        System.out.println("验证结果: " + result);
-        
-        // 验证：应该返回"验证失败"
-        assertEquals("验证失败", result, "验证码错误时应该返回'验证失败'");
-        
-        // 验证：原验证码还在Redis中（没有被删除）
-        String cachedCode = stringRedisTemplate.opsForValue().get("captcha:" + uuid);
-        assertNotNull(cachedCode, "验证码错误时不应该删除原验证码");
-        System.out.println("=== 验证码错误测试通过 ===");
-    }
-
+    
+    /**
+     * 测试captchaToken过期场景
+     * 
+     * 测试目的：验证captchaToken过期后是否正确处理
+     * 测试步骤：
+     *   1. 生成验证码并验证，获取captchaToken
+     *   2. 手动删除Redis中的captchaToken（模拟过期）
+     *   3. 尝试购买
+     * 预期结果：返回"验证码无效或已过期"
+     */
     @Test
     public void testCaptchaTokenExpired() {
         System.out.println("=== 测试captchaToken过期 ===");
@@ -188,6 +186,15 @@ public class FlashSaleCoreServicePracticeTest {
         System.out.println("=== captchaToken过期测试通过 ===");
     }
 
+    /**
+     * 测试captchaToken用户不匹配场景
+     * 
+     * 测试目的：验证captchaToken是否绑定用户
+     * 测试步骤：
+     *   1. 用户A生成验证码并验证，获取captchaToken
+     *   2. 用户B使用用户A的captchaToken尝试购买
+     * 预期结果：返回"验证码无效"
+     */
     @Test
     public void testCaptchaTokenWrongUser() {
         System.out.println("=== 测试captchaToken用户不匹配 ===");
@@ -215,6 +222,16 @@ public class FlashSaleCoreServicePracticeTest {
         System.out.println("=== captchaToken用户不匹配测试通过 ===");
     }
 
+    /**
+     * 测试captchaToken重复使用场景
+     * 
+     * 测试目的：验证captchaToken的一次性使用机制
+     * 测试步骤：
+     *   1. 生成验证码并验证，获取captchaToken
+     *   2. 第一次使用captchaToken购买
+     *   3. 第二次使用同一个captchaToken购买
+     * 预期结果：第二次购买失败，返回"验证码无效或已过期"
+     */
     @Test
     public void testCaptchaTokenReuse() {
         System.out.println("=== 测试captchaToken重复使用 ===");
@@ -251,7 +268,17 @@ public class FlashSaleCoreServicePracticeTest {
     }
 
     // ========== 逆向测试：业务逻辑相关 ==========
-
+    
+    /**
+     * 测试活动不存在场景
+     * 
+     * 测试目的：验证活动不存在时是否正确处理
+     * 测试步骤：
+     *   1. 获取captchaToken
+     *   2. 使用不存在的活动ID（999）
+     *   3. 尝试购买
+     * 预期结果：返回"活动没有开始或者不存在"
+     */
     @Test
     public void testActivityNotExist() {
         System.out.println("=== 测试活动不存在 ===");
@@ -278,6 +305,17 @@ public class FlashSaleCoreServicePracticeTest {
         System.out.println("=== 活动不存在测试通过 ===");
     }
 
+    /**
+     * 测试活动未开始场景
+     * 
+     * 测试目的：验证活动未开始时是否正确处理
+     * 测试步骤：
+     *   1. 获取captchaToken
+     *   2. 修改活动开始时间为未来（模拟活动未开始）
+     *   3. 尝试购买
+     *   4. 恢复活动时间
+     * 预期结果：返回"活动没有开始或者不存在"
+     */
     @Test
     public void testActivityNotStarted() {
         System.out.println("=== 测试活动未开始 ===");
@@ -314,6 +352,17 @@ public class FlashSaleCoreServicePracticeTest {
         System.out.println("=== 活动未开始测试通过 ===");
     }
 
+    /**
+     * 测试活动已结束场景
+     * 
+     * 测试目的：验证活动已结束时是否正确处理
+     * 测试步骤：
+     *   1. 获取captchaToken
+     *   2. 修改活动结束时间为过去（模拟活动已结束）
+     *   3. 尝试购买
+     *   4. 恢复活动时间
+     * 预期结果：返回"活动没有开始或者不存在"
+     */
     @Test
     public void testActivityEnded() {
         System.out.println("=== 测试活动已结束 ===");
@@ -350,6 +399,16 @@ public class FlashSaleCoreServicePracticeTest {
         System.out.println("=== 活动已结束测试通过 ===");
     }
 
+    /**
+     * 测试商品不存在场景
+     * 
+     * 测试目的：验证商品不存在时是否正确处理
+     * 测试步骤：
+     *   1. 获取captchaToken
+     *   2. 使用不存在的商品ID（999）
+     *   3. 尝试购买
+     * 预期结果：返回"商品不存在"
+     */
     @Test
     public void testProductNotExist() {
         System.out.println("=== 测试商品不存在 ===");
@@ -376,6 +435,16 @@ public class FlashSaleCoreServicePracticeTest {
         System.out.println("=== 商品不存在测试通过 ===");
     }
 
+    /**
+     * 测试商品不属于该活动场景
+     * 
+     * 测试目的：验证商品不属于活动时是否正确处理
+     * 测试步骤：
+     *   1. 获取captchaToken
+     *   2. 使用活动ID=1，但商品ID=10属于活动ID=2
+     *   3. 尝试购买
+     * 预期结果：返回"该商品不属于该活动"
+     */
     @Test
     public void testProductNotInActivity() {
         System.out.println("=== 测试商品不属于该活动 ===");
@@ -403,6 +472,17 @@ public class FlashSaleCoreServicePracticeTest {
         System.out.println("=== 商品不属于该活动测试通过 ===");
     }
 
+    /**
+     * 测试库存不足场景
+     * 
+     * 测试目的：验证库存不足时是否正确处理
+     * 测试步骤：
+     *   1. 获取captchaToken
+     *   2. 将库存扣减到0（模拟库存不足）
+     *   3. 尝试购买
+     *   4. 恢复库存
+     * 预期结果：返回"库存不足"
+     */
     @Test
     public void testStockInsufficient() {
         System.out.println("=== 测试库存不足 ===");
@@ -440,7 +520,20 @@ public class FlashSaleCoreServicePracticeTest {
     }
 
     // ========== 数据完整性测试 ==========
-
+    
+    /**
+     * 测试购买后库存减少
+     * 
+     * 测试目的：验证购买成功后库存是否正确减少
+     * 测试步骤：
+     *   1. 获取购买前的库存
+     *   2. 执行购买流程
+     *   3. 获取购买后的库存
+     *   4. 对比库存变化
+     * 预期结果：
+     *   - 购买成功时：库存减少1
+     *   - 购买失败时：库存不变
+     */
     @Test
     public void testStockDecreasedAfterPurchase() {
         System.out.println("=== 测试购买后库存减少 ===");
@@ -477,6 +570,19 @@ public class FlashSaleCoreServicePracticeTest {
         }
     }
 
+    /**
+     * 测试购买后订单创建
+     * 
+     * 测试目的：验证购买成功后订单是否正确创建
+     * 测试步骤：
+     *   1. 获取购买前的订单数量
+     *   2. 执行购买流程
+     *   3. 获取购买后的订单数量
+     *   4. 对比订单数量变化
+     * 预期结果：
+     *   - 购买成功时：订单数量增加1
+     *   - 购买失败时：订单数量不变
+     */
     @Test
     public void testOrderCreatedAfterPurchase() {
         System.out.println("=== 测试购买后订单创建 ===");
@@ -513,6 +619,17 @@ public class FlashSaleCoreServicePracticeTest {
         }
     }
 
+    /**
+     * 测试订单金额正确
+     * 
+     * 测试目的：验证订单金额是否等于秒杀价格
+     * 测试步骤：
+     *   1. 获取秒杀价格
+     *   2. 执行购买流程
+     *   3. 获取订单金额
+     *   4. 对比金额是否相等
+     * 预期结果：订单金额 = 秒杀价格
+     */
     @Test
     public void testOrderAmountCorrect() {
         System.out.println("=== 测试订单金额正确 ===");
@@ -549,7 +666,19 @@ public class FlashSaleCoreServicePracticeTest {
     }
 
     // ========== 边界测试 ==========
-
+    
+    /**
+     * 测试库存为1时购买
+     * 
+     * 测试目的：验证边界条件下的购买行为
+     * 测试步骤：
+     *   1. 设置库存为1
+     *   2. 执行购买流程
+     *   3. 验证购买成功
+     *   4. 验证库存变为0
+     *   5. 恢复库存
+     * 预期结果：购买成功，库存变为0
+     */
     @Test
     public void testBuyWithStockOne() {
         System.out.println("=== 测试库存为1时购买 ===");
@@ -590,7 +719,16 @@ public class FlashSaleCoreServicePracticeTest {
     }
 
     // ========== 异常输入测试 ==========
-
+    
+    /**
+     * 测试captchaToken为空场景
+     * 
+     * 测试目的：验证参数校验机制
+     * 测试步骤：
+     *   1. 构建购买请求，captchaToken设为null
+     *   2. 调用buy方法
+     * 预期结果：返回FAIL
+     */
     @Test
     public void testBuyWithNullCaptchaToken() {
         System.out.println("=== 测试captchaToken为空 ===");
@@ -608,6 +746,16 @@ public class FlashSaleCoreServicePracticeTest {
         System.out.println("=== captchaToken为空测试通过 ===");
     }
 
+    /**
+     * 测试flashSaleId为空场景
+     * 
+     * 测试目的：验证参数校验机制
+     * 测试步骤：
+     *   1. 获取captchaToken
+     *   2. 构建购买请求，flashSaleId设为null
+     *   3. 调用buy方法
+     * 预期结果：返回FAIL或抛出异常（暴露潜在问题）
+     */
     @Test
     public void testBuyWithNullFlashSaleId() {
         System.out.println("=== 测试flashSaleId为空 ===");
@@ -638,6 +786,16 @@ public class FlashSaleCoreServicePracticeTest {
         System.out.println("=== flashSaleId为空测试通过 ===");
     }
 
+    /**
+     * 测试productId为空场景
+     * 
+     * 测试目的：验证参数校验机制
+     * 测试步骤：
+     *   1. 获取captchaToken
+     *   2. 构建购买请求，productId设为null
+     *   3. 调用buy方法
+     * 预期结果：返回FAIL或抛出异常（暴露潜在问题）
+     */
     @Test
     public void testBuyWithNullProductId() {
         System.out.println("=== 测试productId为空 ===");
@@ -668,7 +826,16 @@ public class FlashSaleCoreServicePracticeTest {
     }
 
     // ========== 安全测试 ==========
-
+    
+    /**
+     * 测试UUID字段SQL注入
+     * 
+     * 测试目的：验证系统是否能抵御SQL注入攻击
+     * 测试步骤：
+     *   1. 使用SQL注入的UUID（如 "1' OR '1'='1"）
+     *   2. 尝试验证验证码
+     * 预期结果：返回"验证码已过期"，而不是被注入
+     */
     @Test
     public void testSqlInjectionInUuid() {
         System.out.println("=== 测试UUID字段SQL注入 ===");
@@ -694,6 +861,16 @@ public class FlashSaleCoreServicePracticeTest {
         System.out.println("=== UUID字段SQL注入测试通过 ===");
     }
 
+    /**
+     * 测试验证码字段SQL注入
+     * 
+     * 测试目的：验证系统是否能抵御SQL注入攻击
+     * 测试步骤：
+     *   1. 生成正常的验证码
+     *   2. 使用SQL注入的验证码
+     *   3. 尝试验证
+     * 预期结果：返回"验证失败"，而不是被注入
+     */
     @Test
     public void testSqlInjectionInCode() {
         System.out.println("=== 测试验证码字段SQL注入 ===");
@@ -723,7 +900,16 @@ public class FlashSaleCoreServicePracticeTest {
     }
 
     // ========== 性能测试 ==========
-
+    
+    /**
+     * 测试购买性能
+     * 
+     * 测试目的：验证系统在高并发下的性能表现
+     * 测试步骤：
+     *   1. 执行100次购买请求
+     *   2. 记录总耗时和平均响应时间
+     * 预期结果：平均响应时间 < 1秒
+     */
     @Test
     public void testBuyPerformance() {
         System.out.println("=== 测试购买性能 ===");
@@ -776,7 +962,21 @@ public class FlashSaleCoreServicePracticeTest {
     }
 
     // ========== 并发测试 ==========
-
+    
+    /**
+     * 测试并发购买
+     * 
+     * 测试目的：验证高并发场景下的库存控制
+     * 测试步骤：
+     *   1. 设置库存为1
+     *   2. 启动10个线程同时购买
+     *   3. 等待所有线程完成
+     *   4. 验证结果
+     * 预期结果：
+     *   - 只有1个线程购买成功
+     *   - 其他9个线程购买失败
+     *   - 库存变为0
+     */
     @Test
     public void testConcurrentBuy() throws InterruptedException {
         System.out.println("=== 测试并发购买 ===");
@@ -850,11 +1050,15 @@ public class FlashSaleCoreServicePracticeTest {
         }
     }
 
+    // ========== 辅助方法 ==========
+    
     @Autowired
     private javax.sql.DataSource dataSource;
     
     /**
      * 执行MySQL更新操作（用于测试时修改数据库）
+     * 
+     * @param sql SQL更新语句
      */
     private void mysqlUpdate(String sql) {
         org.springframework.jdbc.core.JdbcTemplate jdbcTemplate = 
@@ -864,6 +1068,9 @@ public class FlashSaleCoreServicePracticeTest {
     
     /**
      * 执行MySQL查询，返回整数结果
+     * 
+     * @param sql SQL查询语句
+     * @return 查询结果（Integer）
      */
     private Integer mysqlQueryInt(String sql) {
         org.springframework.jdbc.core.JdbcTemplate jdbcTemplate = 
@@ -873,6 +1080,9 @@ public class FlashSaleCoreServicePracticeTest {
     
     /**
      * 执行MySQL查询，返回BigDecimal结果
+     * 
+     * @param sql SQL查询语句
+     * @return 查询结果（BigDecimal）
      */
     private java.math.BigDecimal mysqlQueryBigDecimal(String sql) {
         org.springframework.jdbc.core.JdbcTemplate jdbcTemplate = 
@@ -880,5 +1090,12 @@ public class FlashSaleCoreServicePracticeTest {
         return jdbcTemplate.queryForObject(sql, java.math.BigDecimal.class);
     }
 
+    @Configuration
+    static class TestConfig {
+        @Bean
+        public ElasticsearchOperations elasticsearchOperations() {
+            return org.mockito.Mockito.mock(ElasticsearchOperations.class);
+        }
+    }
 
 }

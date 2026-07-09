@@ -1,10 +1,36 @@
-.env.prodlike
+# Environment
 .env
-.DS_Store
-target/
 
+# OS
+.DS_Store
+Thumbs.db
 
 # IDE
 .idea/
 .vscode/
 *.iml
+*.swp
+*.swo
+
+# Build output
+target/
+build/
+*.class
+*.jar
+*.war
+
+# Logs
+*.log
+logs/
+
+# Docker volumes (local data)
+docker/volumes/
+
+# SkyWalking Agent (large binary, use release package)
+skywalking-agent/*.tgz
+
+# Maven wrapper (optional, some projects track it)
+.mvn/wrapper/maven-wrapper.jar
+
+# Node
+node_modules/

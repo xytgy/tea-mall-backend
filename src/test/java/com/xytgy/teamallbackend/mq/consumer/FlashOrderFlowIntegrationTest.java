@@ -2,6 +2,7 @@ package com.xytgy.teamallbackend.mq.consumer;
 
 import com.xytgy.teamallbackend.module.flashsale.mapper.FlashSaleFailedOrderMapper;
 import com.xytgy.teamallbackend.mq.handler.FlashOrderHandler;
+import com.xytgy.teamallbackend.mq.util.IdempotentUtil;
 import com.xytgy.teamallbackend.module.flashsale.service.FlashOrderPersistenceService;
 import com.xytgy.teamallbackend.module.flashsale.service.FlashSaleMetrics;
 import com.xytgy.teamallbackend.module.flashsale.service.FlashSaleNotificationService;
@@ -158,11 +159,17 @@ class FlashOrderFlowIntegrationTest {
         }
 
         @Bean
+        IdempotentUtil idempotentUtil() {
+            return mock(IdempotentUtil.class);
+        }
+
+        @Bean
         FlashOrderMqListener flashOrderMqListener(
                 com.fasterxml.jackson.databind.ObjectMapper objectMapper,
-                FlashOrderHandler flashOrderHandler
+                FlashOrderHandler flashOrderHandler,
+                IdempotentUtil idempotentUtil
         ) {
-            return new FlashOrderMqListener(objectMapper, flashOrderHandler);
+            return new FlashOrderMqListener(objectMapper, flashOrderHandler, idempotentUtil);
         }
     }
 }

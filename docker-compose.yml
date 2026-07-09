@@ -1,11 +1,124 @@
+name: tea-mall
+
 services:
+  mysql:
+    image: mysql:8.0
+    container_name: tea-mall-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: cloud_tea_db
+      TZ: Asia/Shanghai
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d
+      - ./docker/nacos/mysql-schema.sql:/opt/nacos/mysql-schema.sql:ro
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_0900_ai_ci
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD | grep alive"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7
+    container_name: tea-mall-redis
+    ports:
+      - "6379:6379"
+    command: >
+      redis-server
+      --appendonly yes
+      --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+
+  nacos1:
+    image: nacos/nacos-server:v2.3.2
+    container_name: tea-mall-nacos1
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      MODE: cluster
+      PREFER_HOST_MODE: hostname
+      SPRING_DATASOURCE_PLATFORM: mysql
+      MYSQL_SERVICE_HOST: mysql
+      MYSQL_SERVICE_PORT: 3306
+      MYSQL_SERVICE_DB_NAME: nacos_config
+      MYSQL_SERVICE_USER: nacos
+      MYSQL_SERVICE_PASSWORD: ${NACOS_MYSQL_PASSWORD}
+      NACOS_SERVERS: nacos1:8848 nacos2:8848 nacos3:8848
+      JVM_XMS: 256m
+      JVM_XMX: 256m
+      JVM_XMN: 128m
+    ports:
+      - "8848:8848"
+      - "9848:9848"
+      - "9849:9849"
+    restart: unless-stopped
+
+  nacos2:
+    image: nacos/nacos-server:v2.3.2
+    container_name: tea-mall-nacos2
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      MODE: cluster
+      PREFER_HOST_MODE: hostname
+      SPRING_DATASOURCE_PLATFORM: mysql
+      MYSQL_SERVICE_HOST: mysql
+      MYSQL_SERVICE_PORT: 3306
+      MYSQL_SERVICE_DB_NAME: nacos_config
+      MYSQL_SERVICE_USER: nacos
+      MYSQL_SERVICE_PASSWORD: ${NACOS_MYSQL_PASSWORD}
+      NACOS_SERVERS: nacos1:8848 nacos2:8848 nacos3:8848
+      JVM_XMS: 256m
+      JVM_XMX: 256m
+      JVM_XMN: 128m
+    ports:
+      - "8849:8848"
+      - "9850:9848"
+      - "9851:9849"
+    restart: unless-stopped
+
+  nacos3:
+    image: nacos/nacos-server:v2.3.2
+    container_name: tea-mall-nacos3
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      MODE: cluster
+      PREFER_HOST_MODE: hostname
+      SPRING_DATASOURCE_PLATFORM: mysql
+      MYSQL_SERVICE_HOST: mysql
+      MYSQL_SERVICE_PORT: 3306
+      MYSQL_SERVICE_DB_NAME: nacos_config
+      MYSQL_SERVICE_USER: nacos
+      MYSQL_SERVICE_PASSWORD: ${NACOS_MYSQL_PASSWORD}
+      NACOS_SERVERS: nacos1:8848 nacos2:8848 nacos3:8848
+      JVM_XMS: 256m
+      JVM_XMX: 256m
+      JVM_XMN: 128m
+    ports:
+      - "8850:8848"
+      - "9852:9848"
+      - "9853:9849"
+    restart: unless-stopped
+
   rocketmq-namesrv:
     image: apache/rocketmq:5.3.0
     platform: linux/amd64
-    container_name: rocketmq-namesrv
+    container_name: tea-mall-rocketmq-namesrv
     command: nameserver
     ports:
-      - "19876:9876"    # Windows 保留端口问题，映射到 19876
+      - "9876:9876"
     environment:
       JAVA_OPT_EXT: "-Xms256m -Xmx256m"
     healthcheck:
@@ -14,15 +127,12 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
-    networks:
-      - rocketmq
     restart: unless-stopped
 
-  # ======================== Broker 主节点 ========================
   rocketmq-broker:
     image: apache/rocketmq:5.3.0
     platform: linux/amd64
-    container_name: rocketmq-broker
+    container_name: tea-mall-rocketmq-broker
     user: root
     entrypoint: ["/bin/bash", "-c"]
     command:
@@ -49,15 +159,12 @@ services:
       - ./docker/rocketmq/broker.conf:/home/rocketmq/rocketmq-5.3.0/conf/broker.conf
       - rocketmq-broker-data:/home/rocketmq/store
       - rocketmq-broker-logs:/home/rocketmq/logs
-    networks:
-      - rocketmq
     restart: unless-stopped
 
-  # ======================== Broker 从节点 ========================
   rocketmq-broker-slave:
     image: apache/rocketmq:5.3.0
     platform: linux/amd64
-    container_name: rocketmq-broker-slave
+    container_name: tea-mall-rocketmq-broker-slave
     user: root
     entrypoint: ["/bin/bash", "-c"]
     command:
@@ -86,16 +193,102 @@ services:
       - ./docker/rocketmq/broker-slave.conf:/home/rocketmq/rocketmq-5.3.0/conf/broker-slave.conf
       - rocketmq-slave-data:/home/rocketmq/store
       - rocketmq-slave-logs:/home/rocketmq/logs
-    networks:
-      - rocketmq
+    restart: unless-stopped
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.17.0
+    container_name: tea-mall-es
+    environment:
+      discovery.type: single-node
+      ELASTIC_PASSWORD: ${ES_PASSWORD}
+      xpack.security.enabled: "true"
+      xpack.security.http.ssl.enabled: "false"
+      xpack.security.transport.ssl.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    restart: unless-stopped
+
+  skywalking-oap:
+    image: docker.1ms.run/apache/skywalking-oap-server:8.9.0
+    container_name: tea-mall-skywalking-oap
+    ports:
+      - "11800:11800"
+      - "12800:12800"
+    environment:
+      SW_STORAGE: h2
+      SW_HEALTH_CHECKER: default
+      JAVA_OPTS: "-Xms256m -Xmx256m"
+    restart: unless-stopped
+
+  skywalking-ui:
+    image: docker.1ms.run/apache/skywalking-ui:8.9.0
+    container_name: tea-mall-skywalking-ui
+    depends_on:
+      - skywalking-oap
+    ports:
+      - "8081:8080"
+    environment:
+      SW_OAP_ADDRESS: http://skywalking-oap:12800
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tea-mall-backend
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      nacos1:
+        condition: service_started
+      rocketmq-namesrv:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_started
+      skywalking-oap:
+        condition: service_started
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+
+      SPRING_CLOUD_NACOS_CONFIG_ENABLED: "true"
+      SPRING_CLOUD_NACOS_DISCOVERY_ENABLED: "true"
+      NACOS_SERVER_ADDR: "nacos1:8848,nacos2:8848,nacos3:8848"
+      NACOS_NAMESPACE: ${NACOS_NAMESPACE}
+
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: cloud_tea_db
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+
+      ROCKETMQ_NAMESRV: rocketmq-namesrv:9876
+
+      ES_URIS: http://elasticsearch:9200
+      ES_USERNAME: elastic
+      ES_PASSWORD: ${ES_PASSWORD}
+
+      SW_AGENT_COLLECTOR_BACKEND_SERVICE: "skywalking-oap:11800"
+
+      JWT_SECRET: ${JWT_SECRET}
+      CORS_ALLOWED_ORIGINS: http://localhost:5173,http://localhost:10086
     restart: unless-stopped
 
 volumes:
+  mysql-data:
+  redis-data:
+  es-data:
   rocketmq-broker-data:
   rocketmq-broker-logs:
   rocketmq-slave-data:
   rocketmq-slave-logs:
-
-networks:
-  rocketmq:
-    driver: bridge

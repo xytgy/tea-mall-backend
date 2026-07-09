@@ -10,6 +10,6 @@ spring:
         group: DEFAULT_GROUP
         file-extension: yaml
       discovery:
-        enabled: false
+        enabled: true
         server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
         namespace: ${NACOS_NAMESPACE:}

@@ -1,0 +1,13 @@
+spring:
+  application:
+    name: tea-mall-gateway
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password: redis123456
+  cloud:
+    nacos:
+      discovery:
+        enabled: true
+        server-addr: localhost:8848

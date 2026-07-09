@@ -1,8 +1,12 @@
 package com.xytgy.teamallbackend.module.flashsale.service;
 
+import org.springframework.core.io.ClassPathResource;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.google.code.kaptcha.Producer;
+import com.xytgy.teamallbackend.common.ResultCode;
+import com.xytgy.teamallbackend.exception.ServiceException;
 import com.xytgy.teamallbackend.module.flashsale.dto.CaptchaVerifyRequest;
 import com.xytgy.teamallbackend.module.flashsale.dto.FlashSaleBuyRequest;
 import com.xytgy.teamallbackend.module.flashsale.entity.FlashSale;
@@ -11,23 +15,33 @@ import com.xytgy.teamallbackend.module.flashsale.mapper.FlashSaleMapper;
 import com.xytgy.teamallbackend.module.flashsale.mapper.FlashSaleProductMapper;
 import com.xytgy.teamallbackend.module.order.entity.Orders;
 import com.xytgy.teamallbackend.module.order.mapper.OrdersMapper;
-import lombok.AllArgsConstructor;
+import com.xytgy.teamallbackend.mq.message.flashsale.FlashOrderCreateMessage;
+import com.xytgy.teamallbackend.mq.publisher.FlashOrderPublisher;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import jakarta.annotation.PostConstruct;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.Base64;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 
 @Service
-@AllArgsConstructor
+@RequiredArgsConstructor
 @Slf4j
 public class FlashSaleCoreServicePractice {
 
@@ -35,12 +49,52 @@ public class FlashSaleCoreServicePractice {
     private static final String CAPTCHA_TOKEN_KEY_PREFIX = "captcha_token:";
     private static final long CAPTCHA_EXPIRE_SECONDS = 60;
     private static final long TOKEN_EXPIRE_SECONDS = 15;
+    private static final String FLASH_STOCK_PREFIX = "{flash:";
+    private static final String STOCK_SUFFIX = "}:stock";
+    private static final String STOCK_CHANNEL = "flash:stock:sync";
+    private static final String RATE_LIMIT_PREFIX = "flash:rate:";
+    private static final int RATE_LIMIT_MAX_PER_SECOND = 1; // 每秒最多1次请求
 
     private final FlashSaleMapper flashSaleMapper;
     private final FlashSaleProductMapper flashSaleProductMapper;
     private final OrdersMapper ordersMapper;
     private final StringRedisTemplate stringRedisTemplate;
     private final Producer kaptchaProducer;
+    private final FlashOrderPublisher flashOrderPublisher;
+    private DefaultRedisScript<Long> flashDeductScript;
+    private DefaultRedisScript<Long> rateLimitScript;
+    private static final ConcurrentHashMap<Long, AtomicLong> LOCAL_STOCK = new ConcurrentHashMap<>();
+
+    @PostConstruct
+    public void init() {
+        this.flashDeductScript = loadLuaScript("lua/flash_deduct_pratice.lua");
+        this.rateLimitScript = loadLuaScript("lua/sliding_window_limit.lua");
+    }
+
+    public void warmup(Long flashSaleId) {
+        List<FlashSaleProduct> flashSaleProducts = flashSaleProductMapper.selectList(new LambdaQueryWrapper<FlashSaleProduct>()
+                .eq(FlashSaleProduct::getFlashSaleId, flashSaleId));
+        for (FlashSaleProduct fp : flashSaleProducts) {
+            int remaining = fp.getTotalStock() - fp.getSoldCount();
+            if (remaining < 0) {
+                remaining = 0;
+            }
+            String stockKey = FLASH_STOCK_PREFIX + fp.getProductId() + STOCK_SUFFIX;
+            stringRedisTemplate.opsForValue().set(stockKey, String.valueOf(remaining));
+            LOCAL_STOCK.put(fp.getProductId(), new AtomicLong(remaining));
+        }
+    }
+
+
+    private DefaultRedisScript<Long> loadLuaScript(String path) {
+        try {
+            ClassPathResource resource = new ClassPathResource(path);
+            String text = new String(resource.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            return new DefaultRedisScript<>(text, Long.class);
+        } catch (IOException e) {
+            throw new ServiceException(ResultCode.ERROR, "加载 Lua 脚本失败: " + path);
+        }
+    }
 
     //这个是返回图片和UUID为之后的验证还有生成还有返回验证token做前置准备
     public FlashSaleService.CaptchaResult generateCaptchaPractice(Long userId) {
@@ -75,6 +129,7 @@ public class FlashSaleCoreServicePractice {
 
 
     //这个是秒杀减库存的方法，
+    @CircuitBreaker(name = "redis", fallbackMethod = "buyFallback")
     public FlashSaleService.FlashSaleBuyResult buy(Long userId, FlashSaleBuyRequest request) {
         // 校验captchaToken（防刷机制）
         String captchaToken = request.getCaptchaToken();
@@ -104,25 +159,73 @@ public class FlashSaleCoreServicePractice {
             return new FlashSaleService.FlashSaleBuyResult("FAIL", null, "该商品不属于该活动");
         }
 
-        int affected = flashSaleProductMapper.update(null, new UpdateWrapper<FlashSaleProduct>()
-                .eq("flash_sale_id", flashSaleId)
-                .eq("product_id", request.getProductId())
-                .apply("total_stock - sold_count > 0")
-                .setSql("sold_count = sold_count + 1"));
-        if (affected == 0) {
-            return new FlashSaleService.FlashSaleBuyResult("FAIL", null, "库存不足");
+        // 滑动窗口限流（每秒最多1次请求）
+        if (isRateLimited(userId, flashSaleId)) {
+            return new FlashSaleService.FlashSaleBuyResult("FAIL", null, "请求过于频繁，请稍后再试");
         }
 
-        //创建订单，插入到数据库里，因为这个文件是练习所以还有收件人的姓名之类的没有实现
-        Orders order = new Orders();
-        order.setUserId(userId);
-        order.setOrderNo(UUID.randomUUID().toString());
-        order.setStatus(0);
-        order.setTotalAmount(flashSaleProduct.getFlashPrice());
-        order.setSource(1);
-        order.setCreateTime(LocalDateTime.now());
-        ordersMapper.insert(order);
-        return new FlashSaleService.FlashSaleBuyResult("SUCCESS", order.getId(), "抢购成功");
+        // 本地缓存预检（快速拒绝，不访问Redis）
+        Long localStock = LOCAL_STOCK.get(request.getProductId()) != null
+                ? LOCAL_STOCK.get(request.getProductId()).get() : null;
+        if (localStock != null && localStock <= 0) {
+            return new FlashSaleService.FlashSaleBuyResult("FAIL", null, "已售罄");
+        }
+
+        // Redis Lua扣减
+        String stockKey = FLASH_STOCK_PREFIX + request.getProductId() + STOCK_SUFFIX;
+        String boughtKey =  FLASH_STOCK_PREFIX + request.getProductId() + "}:bought:" + flashSaleId;
+
+        Long result = stringRedisTemplate.execute(flashDeductScript,
+                List.of(stockKey, boughtKey),
+                String.valueOf(userId));
+
+        if (result == null || result == -2) {
+            return new FlashSaleService.FlashSaleBuyResult("FAIL", null, "库存不足");
+        }
+        if (result == -1) {
+            return new FlashSaleService.FlashSaleBuyResult("FAIL", null, "已购买过");
+        }
+
+        // 扣减成功，同步更新本地缓存
+        AtomicLong localRef = LOCAL_STOCK.get(request.getProductId());
+        if (localRef != null) {
+            localRef.decrementAndGet();
+            // 广播库存变化给其他实例
+            broadcastStockChange(request.getProductId(), localRef.intValue());
+        }
+
+        // 更新MySQL库存
+        flashSaleProductMapper.update(null, new UpdateWrapper<FlashSaleProduct>()
+                .eq("flash_sale_id", flashSaleId)
+                .eq("product_id", request.getProductId())
+                .setSql("sold_count = sold_count + 1"));
+
+        // 发MQ消息异步创建订单
+        String transactionId = "flash:" + flashSaleId + ":" + request.getProductId() + ":" + userId;
+        FlashOrderCreateMessage message = FlashOrderCreateMessage.builder()
+                .transactionId(transactionId)
+                .flashSaleId(flashSaleId)
+                .productId(request.getProductId())
+                .userId(userId)
+                .flashPrice(flashSaleProduct.getFlashPrice())
+                .build();
+
+        boolean sent = flashOrderPublisher.publishCreateOrder(message);
+        if (!sent) {
+            // MQ不可用，降级同步创建订单
+            log.warn("RocketMQ不可用，秒杀订单转同步创建: transactionId={}", transactionId);
+            Orders order = new Orders();
+            order.setUserId(userId);
+            order.setOrderNo(UUID.randomUUID().toString());
+            order.setStatus(0);
+            order.setTotalAmount(flashSaleProduct.getFlashPrice());
+            order.setSource(1);
+            order.setCreateTime(LocalDateTime.now());
+            ordersMapper.insert(order);
+            return new FlashSaleService.FlashSaleBuyResult("SUCCESS", order.getId(), "抢购成功");
+        }
+
+        return new FlashSaleService.FlashSaleBuyResult("SUCCESS", null, "抢购成功，订单生成中");
     }
 
     // 验证活动是否存在，和检查活动是否没有开始或已经结束
@@ -170,5 +273,58 @@ public class FlashSaleCoreServicePractice {
             return captchaToken;
         }
         return "验证失败";
+    }
+
+    // 滑动窗口限流检查
+    private boolean isRateLimited(Long userId, Long flashSaleId) {
+        String key = RATE_LIMIT_PREFIX + userId + ":" + flashSaleId;
+        long now = System.currentTimeMillis();
+        long window = 60000; // 60秒窗口
+        String requestId = UUID.randomUUID().toString();
+
+        Long count = stringRedisTemplate.execute(rateLimitScript,
+                List.of(key),
+                String.valueOf(now), String.valueOf(window), requestId);
+
+        // count是当前窗口内的请求数（不含本次），超过限制就拒绝
+        return count != null && count >= RATE_LIMIT_MAX_PER_SECOND;
+    }
+
+    // 广播库存变化给其他实例（生产版的FlashSaleCacheManager会监听并更新）
+    private void broadcastStockChange(Long productId, int newStock) {
+        String message = productId + ":" + newStock;
+        stringRedisTemplate.convertAndSend(STOCK_CHANNEL, message);
+    }
+
+    // Redis熔断时降级到MySQL乐观锁
+    public FlashSaleService.FlashSaleBuyResult buyFallback(Long userId, FlashSaleBuyRequest request, Throwable t) {
+        log.warn("Redis熔断器触发, userId={}, error={}", userId, t.getMessage());
+
+        Long flashSaleId = request.getFlashSaleId();
+        FlashSaleProduct flashSaleProduct = validateProduct(request.getProductId());
+        if (flashSaleProduct == null) {
+            return new FlashSaleService.FlashSaleBuyResult("FAIL", null, "商品不存在");
+        }
+
+        // MySQL乐观锁扣减（限速：每秒最多100个请求）
+        int affected = flashSaleProductMapper.update(null, new UpdateWrapper<FlashSaleProduct>()
+                .eq("flash_sale_id", flashSaleId)
+                .eq("product_id", request.getProductId())
+                .apply("total_stock - sold_count > 0")
+                .setSql("sold_count = sold_count + 1"));
+        if (affected == 0) {
+            return new FlashSaleService.FlashSaleBuyResult("FAIL", null, "库存不足");
+        }
+
+        // 降级模式下同步创建订单
+        Orders order = new Orders();
+        order.setUserId(userId);
+        order.setOrderNo(UUID.randomUUID().toString());
+        order.setStatus(0);
+        order.setTotalAmount(flashSaleProduct.getFlashPrice());
+        order.setSource(1);
+        order.setCreateTime(LocalDateTime.now());
+        ordersMapper.insert(order);
+        return new FlashSaleService.FlashSaleBuyResult("SUCCESS", order.getId(), "抢购成功（降级模式）");
     }
 }

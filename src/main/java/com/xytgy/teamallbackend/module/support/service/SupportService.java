@@ -3,7 +3,6 @@ package com.xytgy.teamallbackend.module.support.service;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.xytgy.teamallbackend.module.support.dto.SupportCreateRequest;
 import com.xytgy.teamallbackend.module.support.entity.SupportTicket;
-import com.xytgy.teamallbackend.module.support.vo.SupportTicketVO;
 
 import java.util.Map;
 

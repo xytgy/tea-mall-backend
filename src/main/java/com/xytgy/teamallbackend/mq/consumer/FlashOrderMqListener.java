@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xytgy.teamallbackend.mq.constant.MqConstants;
 import com.xytgy.teamallbackend.mq.handler.FlashOrderHandler;
 import com.xytgy.teamallbackend.mq.message.flashsale.FlashOrderCreateMessage;
+import com.xytgy.teamallbackend.mq.util.IdempotentUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
@@ -23,12 +24,18 @@ public class FlashOrderMqListener implements RocketMQListener<String> {
 
     private final ObjectMapper objectMapper;
     private final FlashOrderHandler flashOrderHandler;
+    private final IdempotentUtil idempotentUtil;
 
     @Override
     public void onMessage(String body) {
         try {
             FlashOrderCreateMessage message = objectMapper.readValue(body, FlashOrderCreateMessage.class);
             validate(message);
+            // 幂等检查
+            if (!idempotentUtil.tryConsume(message.getTransactionId(), MqConstants.GROUP_FLASH_ORDER, MqConstants.TOPIC_FLASH_ORDER)) {
+                log.debug("秒杀订单消息已消费过, transactionId={}", message.getTransactionId());
+                return;
+            }
             flashOrderHandler.handle(message);
         } catch (RuntimeException e) {
             throw e;

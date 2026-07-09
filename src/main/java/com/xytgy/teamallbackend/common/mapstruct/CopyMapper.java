@@ -3,7 +3,6 @@ package com.xytgy.teamallbackend.common.mapstruct;
 import com.xytgy.teamallbackend.module.user.dto.AddressAddRequest;
 import com.xytgy.teamallbackend.module.user.dto.AddressUpdateRequest;
 import com.xytgy.teamallbackend.module.user.dto.AdminUserAddRequest;
-import com.xytgy.teamallbackend.module.user.dto.LoginRequest;
 import com.xytgy.teamallbackend.module.user.dto.RegisterRequest;
 import com.xytgy.teamallbackend.module.user.entity.Address;
 import com.xytgy.teamallbackend.module.user.entity.User;

@@ -5,7 +5,6 @@ import com.xytgy.teamallbackend.common.PageResult;
 import com.xytgy.teamallbackend.module.favorite.entity.Favorite;
 import com.xytgy.teamallbackend.module.favorite.vo.FavoriteItemVO;
 
-import java.util.List;
 
 public interface FavoriteService extends IService<Favorite> {
     void addFavorite(Long userId, Long productId);

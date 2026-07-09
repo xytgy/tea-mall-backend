@@ -33,13 +33,6 @@ public class Orders {
     /** 退款被拒 */
     public static final int STATUS_REFUND_REJECTED = 8;
 
-    /** 结算状态：未结算 */
-    public static final int SETTLE_PENDING = 0;
-    /** 结算状态：结算中 */
-    public static final int SETTLE_PROCESSING = 1;
-    /** 结算状态：已结算 */
-    public static final int SETTLE_DONE = 2;
-
     /** 订单来源：普通 */
     public static final int SOURCE_NORMAL = 0;
     /** 订单来源：秒杀 */

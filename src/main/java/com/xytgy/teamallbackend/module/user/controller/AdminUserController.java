@@ -31,7 +31,6 @@ import java.util.List;
 @RequiredArgsConstructor
 public class AdminUserController extends BaseController {
 
-    private static final Integer AdminRole = 2;
     private final UserService userService;
 
     @PreAuthorize("hasRole('ADMIN')")

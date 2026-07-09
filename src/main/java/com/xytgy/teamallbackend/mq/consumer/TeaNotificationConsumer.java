@@ -4,6 +4,7 @@ import com.xytgy.teamallbackend.mq.constant.MqConstants;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xytgy.teamallbackend.mq.handler.TeaNotificationHandler;
 import com.xytgy.teamallbackend.mq.message.teacircle.TeaNotificationMessage;
+import com.xytgy.teamallbackend.mq.util.IdempotentUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
@@ -24,6 +25,7 @@ public class TeaNotificationConsumer implements RocketMQListener<String> {
 
     private final ObjectMapper objectMapper;
     private final TeaNotificationHandler teaNotificationHandler;
+    private final IdempotentUtil idempotentUtil;
 
     @Override
     public void onMessage(String body) {
@@ -34,6 +36,12 @@ public class TeaNotificationConsumer implements RocketMQListener<String> {
                     || message.getSourceId() == null
                     || message.getActorId() == null) {
                 throw new IllegalArgumentException("茶友圈通知消息字段不完整");
+            }
+            // 幂等检查（组合key：type+sourceId+actorId）
+            String messageId = "tea-notify:" + message.getType() + ":" + message.getSourceId() + ":" + message.getActorId();
+            if (!idempotentUtil.tryConsume(messageId, MqConstants.GROUP_TEA_NOTIFICATION, MqConstants.TOPIC_TEA_NOTIFICATION)) {
+                log.debug("茶友圈通知已消费过, messageId={}", messageId);
+                return;
             }
             teaNotificationHandler.handle(
                     message.getTargetUserId(),

@@ -4,6 +4,7 @@ import com.xytgy.teamallbackend.mq.constant.MqConstants;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xytgy.teamallbackend.mq.handler.ChatDispatchHandler;
 import com.xytgy.teamallbackend.mq.message.chat.ChatDispatchMessage;
+import com.xytgy.teamallbackend.mq.util.IdempotentUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
@@ -24,6 +25,7 @@ public class ChatMessageConsumer implements RocketMQListener<String> {
 
     private final ObjectMapper objectMapper;
     private final ChatDispatchHandler chatDispatchHandler;
+    private final IdempotentUtil idempotentUtil;
 
     @Override
     public void onMessage(String body) {
@@ -33,6 +35,12 @@ public class ChatMessageConsumer implements RocketMQListener<String> {
                     || message.getMessageId() == null
                     || message.getContent() == null) {
                 throw new IllegalArgumentException("聊天分发消息字段不完整");
+            }
+            // 幂等检查
+            String messageId = "chat:" + message.getMessageId();
+            if (!idempotentUtil.tryConsume(messageId, MqConstants.GROUP_CHAT_MESSAGE, MqConstants.TOPIC_CHAT_MESSAGE)) {
+                log.debug("聊天消息已消费过, messageId={}", message.getMessageId());
+                return;
             }
             chatDispatchHandler.handle(
                     message.getReceiverId(),

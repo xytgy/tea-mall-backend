@@ -1,6 +1,7 @@
 package com.xytgy.teamallbackend.lock;
 
 import com.xytgy.teamallbackend.properties.LockProperties;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
@@ -36,15 +37,11 @@ import java.util.function.Supplier;
  */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class DistributedLock {
 
     private final RedissonClient redissonClient;
     private final LockProperties lockProperties;
-
-    public DistributedLock(RedissonClient redissonClient, LockProperties lockProperties) {
-        this.redissonClient = redissonClient;
-        this.lockProperties = lockProperties;
-    }
 
     // ==================== Raw API（向后兼容） ====================
 

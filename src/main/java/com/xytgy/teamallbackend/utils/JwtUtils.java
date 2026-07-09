@@ -35,17 +35,17 @@ public class JwtUtils {
             throw new IllegalArgumentException("claims 必须包含 id");
         }
         return Jwts.builder()
-                .setExpiration(new Date(System.currentTimeMillis() + jwtProperties.getAccessTokenExpirationMs()))
-                .setClaims(claims)
+                .expiration(new Date(System.currentTimeMillis() + jwtProperties.getAccessTokenExpirationMs()))
+                .claims(claims)
                 .signWith(key)
                 .compact();
     }
 
     public Map<String, Object> parseToken (String token) {
-        return Jwts.parserBuilder()
-                .setSigningKey(key)
+        return Jwts.parser()
+                .verifyWith(key)
                 .build()
-                .parseClaimsJws(token).getBody();
+                .parseSignedClaims(token).getPayload();
     }
 }
 

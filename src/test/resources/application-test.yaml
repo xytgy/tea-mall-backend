@@ -1,19 +1,43 @@
-# 测试环境配置
+# 测试环境配置 - 使用本地 MySQL + Redis
 spring:
   flyway:
     enabled: false
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:sql/test-schema.sql
+      data-locations: classpath:sql/test-data.sql
+  datasource:
+    url: jdbc:mysql://localhost:3306/cloud_tea_db?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&characterEncoding=UTF-8
+    username: root
+    password: "123456"
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 5
   data:
     redis:
       host: localhost
+      password: redis123456
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.elasticsearch.ElasticsearchClientAutoConfiguration
+      - org.springframework.boot.autoconfigure.elasticsearch.ElasticsearchRestClientAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.elasticsearch.ElasticsearchDataAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.elasticsearch.ElasticsearchRepositoriesAutoConfiguration
+      - com.alibaba.cloud.nacos.NacosConfigAutoConfiguration
+      - com.alibaba.cloud.nacos.discovery.NacosDiscoveryAutoConfiguration
+      - org.springframework.boot.actuate.autoconfigure.tracing.zipkin.ZipkinAutoConfiguration
 
 jwt:
-  # 测试专用密钥，仅用于单元测试
   secret: test-secret-key-for-unit-tests-only-32bytes!
   access-token-expiration-ms: 1800000
   refresh-token-expiration-ms: 604800000
 
 knife4j:
   enable: false
+
+rocketmq:
+  name-server: ""
 
 app:
   aliyun:
@@ -22,3 +46,11 @@ app:
       accessKeyId: test-key
       accessKeySecret: test-secret
       bucketName: test-bucket
+  elasticsearch:
+    enabled: false
+
+mock-pay:
+  enabled: false
+
+docs:
+  enabled: false

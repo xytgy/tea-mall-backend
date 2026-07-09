@@ -23,7 +23,6 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class MerchantGoodsController extends BaseController {
 
-    private static final Integer MerchantRole = 1;
     private final ProductService productService;
 
     @PreAuthorize("hasRole('MERCHANT')")

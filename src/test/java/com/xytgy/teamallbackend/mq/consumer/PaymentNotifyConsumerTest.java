@@ -2,6 +2,7 @@ package com.xytgy.teamallbackend.mq.consumer;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xytgy.teamallbackend.mq.handler.PaymentNotifyHandler;
+import com.xytgy.teamallbackend.mq.util.IdempotentUtil;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -16,9 +17,12 @@ class PaymentNotifyConsumerTest {
     @Mock
     private PaymentNotifyHandler paymentNotifyHandler;
 
+    @Mock
+    private IdempotentUtil idempotentUtil;
+
     @Test
     void dispatchesValidPaymentMessageToHandler() {
-        PaymentNotifyConsumer consumer = new PaymentNotifyConsumer(new ObjectMapper(), paymentNotifyHandler);
+        PaymentNotifyConsumer consumer = new PaymentNotifyConsumer(new ObjectMapper(), paymentNotifyHandler, idempotentUtil);
 
         consumer.onMessage("{\"orderId\":1,\"userId\":2,\"paymentId\":3}");
 
@@ -27,7 +31,7 @@ class PaymentNotifyConsumerTest {
 
     @Test
     void rejectsIncompletePaymentMessage() {
-        PaymentNotifyConsumer consumer = new PaymentNotifyConsumer(new ObjectMapper(), paymentNotifyHandler);
+        PaymentNotifyConsumer consumer = new PaymentNotifyConsumer(new ObjectMapper(), paymentNotifyHandler, idempotentUtil);
 
         assertThrows(IllegalStateException.class, () -> consumer.onMessage("{\"orderId\":1}"));
     }

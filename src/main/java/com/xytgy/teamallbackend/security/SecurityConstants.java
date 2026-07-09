@@ -24,7 +24,8 @@ public final class SecurityConstants {
             "/api/tea-circle/campaigns/latest",
             "/api/feedback/submit",
             "/uploads/**",
-            "/ws/**"
+            "/ws/**",
+            "/actuator/**"
     };
 
     /**

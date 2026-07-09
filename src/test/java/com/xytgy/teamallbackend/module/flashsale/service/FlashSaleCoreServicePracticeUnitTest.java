@@ -51,6 +51,25 @@ public class FlashSaleCoreServicePracticeUnitTest {
 
     // ========== 测试验证码生成 ==========
 
+    /**
+     * 单元测试：测试验证码生成功能
+     * 
+     * 测试目的：验证generateCaptchaPractice方法的逻辑是否正确
+     * 测试方式：使用Mockito Mock外部依赖（kaptchaProducer、Redis）
+     * 测试范围：只测试Service层逻辑，不涉及数据库和Redis
+     * 
+     * 测试步骤：
+     *   1. Mock kaptchaProducer，返回固定的验证码和图片
+     *   2. Mock Redis操作
+     *   3. 调用generateCaptchaPractice方法
+     *   4. 验证返回结果（UUID、图片格式）
+     *   5. 验证Redis操作（存入验证码、过期时间60秒）
+     * 
+     * 预期结果：
+     *   - UUID不为空
+     *   - 图片Base64格式正确
+     *   - Redis操作正确执行
+     */
     @Test
     public void testGenerateCaptcha_Unit() {
         // 准备Mock数据

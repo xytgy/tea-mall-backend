@@ -48,7 +48,7 @@ public class IdempotentUtil {
             consumedRecordMapper.insert(record);
             return true;
         } catch (DuplicateKeyException e) {
-            // 唯一键冲突，说明已消费过
+                // 唯一键冲突，说明已消费过
             log.debug("消息已消费过, messageId={}, consumerGroup={}", messageId, consumerGroup);
             return false;
         }

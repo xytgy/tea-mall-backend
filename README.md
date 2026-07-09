@@ -79,7 +79,7 @@ docker compose -f docker-compose.yml up -d
 ## 部署
 
 ```bash
-docker compose -f docker-compose.prodlike.yml up -d
+docker compose up -d
 ```
 
 ---

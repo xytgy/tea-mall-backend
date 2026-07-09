@@ -6,6 +6,7 @@ import com.xytgy.teamallbackend.mq.handler.FlashOrderHandler;
 import com.xytgy.teamallbackend.mq.handler.OrderTimeoutHandler;
 import com.xytgy.teamallbackend.mq.handler.PaymentNotifyHandler;
 import com.xytgy.teamallbackend.mq.handler.TeaNotificationHandler;
+import com.xytgy.teamallbackend.mq.util.IdempotentUtil;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -112,28 +113,33 @@ class MqConsumerIntegrationTest {
         }
 
         @Bean
-        FlashOrderMqListener flashOrderMqListener(ObjectMapper objectMapper, FlashOrderHandler flashOrderHandler) {
-            return new FlashOrderMqListener(objectMapper, flashOrderHandler);
+        IdempotentUtil idempotentUtil() {
+            return mock(IdempotentUtil.class);
         }
 
         @Bean
-        OrderTimeoutConsumer orderTimeoutConsumer(ObjectMapper objectMapper, OrderTimeoutHandler orderTimeoutHandler) {
-            return new OrderTimeoutConsumer(objectMapper, orderTimeoutHandler);
+        FlashOrderMqListener flashOrderMqListener(ObjectMapper objectMapper, FlashOrderHandler flashOrderHandler, IdempotentUtil idempotentUtil) {
+            return new FlashOrderMqListener(objectMapper, flashOrderHandler, idempotentUtil);
         }
 
         @Bean
-        PaymentNotifyConsumer paymentNotifyConsumer(ObjectMapper objectMapper, PaymentNotifyHandler paymentNotifyHandler) {
-            return new PaymentNotifyConsumer(objectMapper, paymentNotifyHandler);
+        OrderTimeoutConsumer orderTimeoutConsumer(ObjectMapper objectMapper, OrderTimeoutHandler orderTimeoutHandler, IdempotentUtil idempotentUtil) {
+            return new OrderTimeoutConsumer(objectMapper, orderTimeoutHandler, idempotentUtil);
         }
 
         @Bean
-        ChatMessageConsumer chatMessageConsumer(ObjectMapper objectMapper, ChatDispatchHandler chatDispatchHandler) {
-            return new ChatMessageConsumer(objectMapper, chatDispatchHandler);
+        PaymentNotifyConsumer paymentNotifyConsumer(ObjectMapper objectMapper, PaymentNotifyHandler paymentNotifyHandler, IdempotentUtil idempotentUtil) {
+            return new PaymentNotifyConsumer(objectMapper, paymentNotifyHandler, idempotentUtil);
         }
 
         @Bean
-        TeaNotificationConsumer teaNotificationConsumer(ObjectMapper objectMapper, TeaNotificationHandler teaNotificationHandler) {
-            return new TeaNotificationConsumer(objectMapper, teaNotificationHandler);
+        ChatMessageConsumer chatMessageConsumer(ObjectMapper objectMapper, ChatDispatchHandler chatDispatchHandler, IdempotentUtil idempotentUtil) {
+            return new ChatMessageConsumer(objectMapper, chatDispatchHandler, idempotentUtil);
+        }
+
+        @Bean
+        TeaNotificationConsumer teaNotificationConsumer(ObjectMapper objectMapper, TeaNotificationHandler teaNotificationHandler, IdempotentUtil idempotentUtil) {
+            return new TeaNotificationConsumer(objectMapper, teaNotificationHandler, idempotentUtil);
         }
     }
 }

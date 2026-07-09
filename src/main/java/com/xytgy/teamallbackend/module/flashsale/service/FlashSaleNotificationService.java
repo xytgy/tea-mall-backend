@@ -2,8 +2,6 @@ package com.xytgy.teamallbackend.module.flashsale.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xytgy.teamallbackend.config.websocket.ChatWebSocketHandler;
-import com.xytgy.teamallbackend.module.flashsale.entity.FlashSaleAuditLog;
-import com.xytgy.teamallbackend.module.flashsale.mapper.FlashSaleAuditLogMapper;
 import com.xytgy.teamallbackend.module.teacircle.entity.TeaNotification;
 import com.xytgy.teamallbackend.module.teacircle.mapper.TeaNotificationMapper;
 import lombok.RequiredArgsConstructor;

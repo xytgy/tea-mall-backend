@@ -5,7 +5,6 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.xytgy.teamallbackend.common.ResultCode;
 import com.xytgy.teamallbackend.module.flashsale.dto.FlashSaleAddProductRequest;
 import com.xytgy.teamallbackend.module.flashsale.dto.FlashSaleCreateRequest;
-import com.xytgy.teamallbackend.mq.constant.MqConstants;
 import com.xytgy.teamallbackend.mq.config.FlashSaleCacheManager;
 import com.xytgy.teamallbackend.mq.message.flashsale.FlashOrderCreateMessage;
 import com.xytgy.teamallbackend.mq.publisher.FlashOrderPublisher;

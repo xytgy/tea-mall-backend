@@ -1,7 +1,6 @@
 package com.xytgy.teamallbackend.cache.hot;
 
 import com.xytgy.teamallbackend.cache.metrics.CacheMetrics;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;

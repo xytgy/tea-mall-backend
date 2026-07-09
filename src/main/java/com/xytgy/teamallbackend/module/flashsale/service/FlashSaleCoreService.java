@@ -41,7 +41,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Service
 @Slf4j
 @RequiredArgsConstructor
-public class FlashSaleCoreService {
+    public class FlashSaleCoreService {
 
     private final StringRedisTemplate stringRedisTemplate;
     private final FlashSaleCacheManager cacheManager;
