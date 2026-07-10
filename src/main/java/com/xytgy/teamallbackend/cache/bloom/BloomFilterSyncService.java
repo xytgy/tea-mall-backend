@@ -34,6 +34,7 @@ public class BloomFilterSyncService implements MessageListener {
 
     @PostConstruct
     public void registerListener() {
+        listenerContainer.start();
         listenerContainer.addMessageListener(this, new ChannelTopic(CHANNEL));
         log.info("BloomFilter Pub/Sub 监听已注册, channel={}", CHANNEL);
     }

@@ -119,7 +119,10 @@ public class ProductController extends BaseController {
 
     @GetMapping("/reviews")
     @Operation(summary = "获取商品评价列表")
-    public Result<List<ProductReviewVO>> getProductReviews(@RequestParam("productId") Long productId) {
+    public Result<List<ProductReviewVO>> getProductReviews(@RequestParam(value = "productId", required = false) Long productId) {
+        if (productId == null) {
+            return Result.success(List.of());
+        }
         return Result.success(productService.listProductReviews(productId));
     }
 

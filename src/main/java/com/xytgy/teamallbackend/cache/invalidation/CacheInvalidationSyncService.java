@@ -36,6 +36,7 @@ public class CacheInvalidationSyncService implements MessageListener {
 
     @PostConstruct
     public void registerListener() {
+        listenerContainer.start();
         listenerContainer.addMessageListener(this, new ChannelTopic(CHANNEL));
         log.info("缓存失效 Pub/Sub 监听已注册, channel={}", CHANNEL);
     }

@@ -1,15 +1,17 @@
-name: tea-mall
+name: tea-mall-prod
 
 services:
+  # ======================== MySQL ========================
   mysql:
     image: mysql:8.0
     container_name: tea-mall-mysql
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: cloud_tea_db
+      MYSQL_DEFAULT_AUTHENTICATION_PLUGIN: mysql_native_password
       TZ: Asia/Shanghai
     ports:
-      - "3307:3306"
+      - "3306:3306"
     volumes:
       - mysql-data:/var/lib/mysql
       - ./docker/mysql/init:/docker-entrypoint-initdb.d
@@ -17,6 +19,7 @@ services:
     command: >
       --character-set-server=utf8mb4
       --collation-server=utf8mb4_0900_ai_ci
+      --default-authentication-plugin=mysql_native_password
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD | grep alive"]
       interval: 10s
@@ -24,11 +27,12 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # ======================== Redis ========================
   redis:
     image: redis:7
     container_name: tea-mall-redis
     ports:
-      - "6380:6379"
+      - "6379:6379"
     command: >
       redis-server
       --appendonly yes
@@ -37,20 +41,83 @@ services:
       - redis-data:/data
     restart: unless-stopped
 
+  # ======================== Nacos 集群 ========================
   nacos1:
     image: nacos/nacos-server:v2.3.2
     container_name: tea-mall-nacos1
+    depends_on:
+      mysql:
+        condition: service_healthy
     environment:
-      MODE: standalone
-      JVM_XMS: 256m
-      JVM_XMX: 256m
-      JVM_XMN: 128m
+      MODE: cluster
+      PREFER_HOST_MODE: hostname
+      SPRING_DATASOURCE_PLATFORM: mysql
+      MYSQL_SERVICE_HOST: mysql
+      MYSQL_SERVICE_PORT: 3306
+      MYSQL_SERVICE_DB_NAME: nacos_config
+      MYSQL_SERVICE_USER: nacos
+      MYSQL_SERVICE_PASSWORD: ${NACOS_MYSQL_PASSWORD}
+      NACOS_SERVERS: nacos1:8848 nacos2:8848 nacos3:8848
+      JVM_XMS: 512m
+      JVM_XMX: 512m
+      JVM_XMN: 256m
     ports:
       - "8848:8848"
       - "9848:9848"
       - "9849:9849"
     restart: unless-stopped
 
+  nacos2:
+    image: nacos/nacos-server:v2.3.2
+    container_name: tea-mall-nacos2
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      MODE: cluster
+      PREFER_HOST_MODE: hostname
+      SPRING_DATASOURCE_PLATFORM: mysql
+      MYSQL_SERVICE_HOST: mysql
+      MYSQL_SERVICE_PORT: 3306
+      MYSQL_SERVICE_DB_NAME: nacos_config
+      MYSQL_SERVICE_USER: nacos
+      MYSQL_SERVICE_PASSWORD: ${NACOS_MYSQL_PASSWORD}
+      NACOS_SERVERS: nacos1:8848 nacos2:8848 nacos3:8848
+      JVM_XMS: 512m
+      JVM_XMX: 512m
+      JVM_XMN: 256m
+    ports:
+      - "8849:8848"
+      - "9850:9848"
+      - "9851:9849"
+    restart: unless-stopped
+
+  nacos3:
+    image: nacos/nacos-server:v2.3.2
+    container_name: tea-mall-nacos3
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      MODE: cluster
+      PREFER_HOST_MODE: hostname
+      SPRING_DATASOURCE_PLATFORM: mysql
+      MYSQL_SERVICE_HOST: mysql
+      MYSQL_SERVICE_PORT: 3306
+      MYSQL_SERVICE_DB_NAME: nacos_config
+      MYSQL_SERVICE_USER: nacos
+      MYSQL_SERVICE_PASSWORD: ${NACOS_MYSQL_PASSWORD}
+      NACOS_SERVERS: nacos1:8848 nacos2:8848 nacos3:8848
+      JVM_XMS: 512m
+      JVM_XMX: 512m
+      JVM_XMN: 256m
+    ports:
+      - "8850:8848"
+      - "9852:9848"
+      - "9853:9849"
+    restart: unless-stopped
+
+  # ======================== RocketMQ ========================
   rocketmq-namesrv:
     image: apache/rocketmq:5.3.0
     platform: linux/amd64
@@ -83,7 +150,7 @@ services:
       - "10911:10911"
       - "10909:10909"
     environment:
-      JAVA_OPT_EXT: "-Xms256m -Xmx256m"
+      JAVA_OPT_EXT: "-Xms256m -Xmx512m"
       NAMESRV_ADDR: "rocketmq-namesrv:9876"
     depends_on:
       rocketmq-namesrv:
@@ -115,7 +182,7 @@ services:
       - "10811:10911"
       - "10809:10909"
     environment:
-      JAVA_OPT_EXT: "-Xms256m -Xmx256m"
+      JAVA_OPT_EXT: "-Xms256m -Xmx512m"
       NAMESRV_ADDR: "rocketmq-namesrv:9876"
     depends_on:
       rocketmq-namesrv:
@@ -134,6 +201,7 @@ services:
       - rocketmq-slave-logs:/home/rocketmq/logs
     restart: unless-stopped
 
+  # ======================== Elasticsearch ========================
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.17.0
     container_name: tea-mall-es
@@ -143,16 +211,14 @@ services:
       xpack.security.enabled: "true"
       xpack.security.http.ssl.enabled: "false"
       xpack.security.transport.ssl.enabled: "false"
-      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+      ES_JAVA_OPTS: "-Xms1g -Xmx1g"
     ports:
       - "9200:9200"
     volumes:
       - es-data:/usr/share/elasticsearch/data
-      - ./docker/es/install-ik.sh:/usr/share/elasticsearch/bin/install-ik.sh
-    command: >
-      sh -c "chmod +x /usr/share/elasticsearch/bin/install-ik.sh && /usr/share/elasticsearch/bin/install-ik.sh && /usr/local/bin/docker-entrypoint.sh eswrapper"
     restart: unless-stopped
 
+  # ======================== SkyWalking ========================
   skywalking-oap:
     image: docker.1ms.run/apache/skywalking-oap-server:8.9.0
     container_name: tea-mall-skywalking-oap
@@ -162,7 +228,7 @@ services:
     environment:
       SW_STORAGE: h2
       SW_HEALTH_CHECKER: default
-      JAVA_OPTS: "-Xms256m -Xmx256m"
+      JAVA_OPTS: "-Xms512m -Xmx512m"
     restart: unless-stopped
 
   skywalking-ui:
@@ -171,45 +237,12 @@ services:
     depends_on:
       - skywalking-oap
     ports:
-      - "8091:8080"
+      - "8081:8080"
     environment:
       SW_OAP_ADDRESS: http://skywalking-oap:12800
     restart: unless-stopped
 
-  kafka:
-    image: bitnami/kafka:3.7
-    container_name: tea-mall-kafka
-    ports:
-      - "9092:9092"
-    environment:
-      KAFKA_CFG_NODE_ID: 0
-      KAFKA_CFG_PROCESS_ROLES: controller,broker
-      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 0@kafka:9093
-      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
-      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
-      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
-      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_CFG_LOG_RETENTION_HOURS: 72
-    volumes:
-      - kafka-data:/bitnami/kafka
-    restart: unless-stopped
-
-  canal:
-    image: canal/canal-server:v1.1.7
-    container_name: tea-mall-canal
-    environment:
-      TZ: Asia/Shanghai
-      canal.instance.master.address: mysql:3306
-      canal.instance.dbUsername: canal
-      canal.instance.dbPassword: canal
-    ports:
-      - "11111:11111"
-      - "11110:11110"
-    depends_on:
-      mysql:
-        condition: service_healthy
-    restart: unless-stopped
-
+  # ======================== Sentinel ========================
   sentinel:
     image: docker.1ms.run/bladex/sentinel-dashboard:1.8.6
     container_name: tea-mall-sentinel
@@ -217,6 +250,7 @@ services:
       - "8858:8858"
     restart: unless-stopped
 
+  # ======================== 日志聚合 ========================
   loki:
     image: grafana/loki:3.0.0
     container_name: tea-mall-loki
@@ -242,12 +276,63 @@ services:
     image: grafana/grafana:11.0.0
     container_name: tea-mall-grafana
     ports:
-      - "3001:3000"
+      - "3000:3000"
     environment:
       GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
     volumes:
       - grafana-data:/var/lib/grafana
+    restart: unless-stopped
+
+  # ======================== 后端应用 ========================
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tea-mall-backend
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      nacos1:
+        condition: service_started
+      rocketmq-namesrv:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_started
+      skywalking-oap:
+        condition: service_started
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+
+      SPRING_CLOUD_NACOS_CONFIG_ENABLED: "true"
+      SPRING_CLOUD_NACOS_DISCOVERY_ENABLED: "true"
+      NACOS_SERVER_ADDR: "nacos1:8848,nacos2:8848,nacos3:8848"
+      NACOS_NAMESPACE: ${NACOS_NAMESPACE}
+
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: cloud_tea_db
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+
+      ROCKETMQ_NAMESRV: rocketmq-namesrv:9876
+
+      ES_URIS: http://elasticsearch:9200
+      ES_USERNAME: elastic
+      ES_PASSWORD: ${ES_PASSWORD}
+
+      SW_AGENT_COLLECTOR_BACKEND_SERVICE: "skywalking-oap:11800"
+
+      JWT_SECRET: ${JWT_SECRET}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
     restart: unless-stopped
 
 volumes:
@@ -258,6 +343,5 @@ volumes:
   rocketmq-broker-logs:
   rocketmq-slave-data:
   rocketmq-slave-logs:
-  kafka-data:
   loki-data:
   grafana-data:
